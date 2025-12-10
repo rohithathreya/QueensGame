@@ -16,6 +16,11 @@ let generatingOverlay = null;
 let sharedPuzzleOverride = null;
 let lastCompletionMillis = null;
 let lastPreviewDataUrl = null;
+// Default OG worker base (can be overridden by window.WORKER_OG_BASE if needed)
+const DEFAULT_OG_WORKER_BASE = 'https://queens-og.rohithmathreya.workers.dev';
+const OG_WORKER_BASE = typeof window !== 'undefined'
+    ? (window.WORKER_OG_BASE || DEFAULT_OG_WORKER_BASE)
+    : DEFAULT_OG_WORKER_BASE;
 
 // ============================================================================ 
 // Bit-level encoding helpers for compact puzzle links 
@@ -532,8 +537,10 @@ function tryLoadSharedPuzzleFromUrl() {
 function buildShareLink(elapsedMillis) {
     const code = encodePuzzle(currentGameState.puzzle);
     const seconds = Math.floor(elapsedMillis / 1000);
-    const url = `${window.location.origin}${window.location.pathname}?p=${encodeURIComponent(code)}&t=${seconds}`;
-    return url;
+    if (OG_WORKER_BASE) {
+        return `${OG_WORKER_BASE.replace(/\/+$/, '')}/share?p=${encodeURIComponent(code)}&t=${seconds}`;
+    }
+    return `${window.location.origin}${window.location.pathname}?p=${encodeURIComponent(code)}&t=${seconds}`;
 }
 
 function updateChallengePreview() {
@@ -628,7 +635,13 @@ function handleChallengeShare() {
                 return false;
             }
         } catch (err) {
-            return false;
+            // If image share failed, fall back to URL-only share without canShare gating
+            try {
+                await navigator.share(baseShare);
+                return true;
+            } catch (_) {
+                return false;
+            }
         }
     };
 

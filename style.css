@@ -404,8 +404,8 @@ select {
 
 .cell.marker::after {
   content: '✕';
-  color: var(--text-muted);
-  font-weight: 300;
+  color: #ffffff;
+  font-weight: 700;
   animation: popIn var(--transition-base);
   position: relative;
   z-index: 1;
