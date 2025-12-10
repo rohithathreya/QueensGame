@@ -183,12 +183,13 @@ function updateCellBorders(cell, row, col) {
         left: col === 0 || currentGameState.puzzle.regions[row][col - 1] !== regionId
     };
 
-    if (borders.top) cell.style.borderTopWidth = '2px';
-    if (borders.right) cell.style.borderRightWidth = '2px';
-    if (borders.bottom) cell.style.borderBottomWidth = '2px';
-    if (borders.left) cell.style.borderLeftWidth = '2px';
+    if (borders.top) cell.style.borderTop = '3px solid white';
+    if (borders.right) cell.style.borderRight = '3px solid white';
+    if (borders.bottom) cell.style.borderBottom = '3px solid white';
+    if (borders.left) cell.style.borderLeft = '3px solid white';
 
-    cell.style.borderStyle = 'solid';
+    // Ensure borders are visible on top of the base grid border
+    cell.style.zIndex = (borders.top || borders.right || borders.bottom || borders.left) ? '1' : 'auto';
 }
 
 function updateCellVisual(cell, row, col) {

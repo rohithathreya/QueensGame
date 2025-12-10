@@ -369,38 +369,45 @@ select {
 
 .board {
   display: inline-grid;
-  gap: 2px;
+  gap: 0;
+  /* Remove gap */
   background: var(--bg-secondary);
-  padding: 3px;
-  border-radius: var(--radius-lg);
+  padding: 4px;
+  /* thick outer border feel */
+  border-radius: 4px;
+  /* minimal corner */
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   position: relative;
+  border: 2px solid var(--text-secondary);
 }
 
 .board::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  background: linear-gradient(135deg, var(--accent-primary), hsl(200, 85%, 65%));
-  border-radius: var(--radius-lg);
-  opacity: 0.3;
-  z-index: -1;
-  filter: blur(20px);
+  content: none;
 }
 
 .cell {
   width: 70px;
   height: 70px;
-  border-radius: var(--radius-sm);
+  border-radius: 0;
+  /* Square tiles */
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 2.5rem;
-  transition: all var(--transition-base);
+  transition: background-color 0.2s;
+  /* Faster transition, no transform */
   position: relative;
   overflow: hidden;
   user-select: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  /* Subtle grid lines */
+}
+
+/* Hover effect - just explicit highlight, no scaling */
+.cell:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  z-index: 10;
 }
 
 /* Cell background shimmer effect */

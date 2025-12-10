@@ -231,30 +231,45 @@ class RegionGenerator {
 // SOLUTION GENERATION (Backtracking Solver)
 // ============================================================================
 
+// ============================================================================
+// SOLUTION GENERATOR (Backtracking Solver with Solution Counting)
+// ============================================================================
+
 class SolutionGenerator {
   constructor(size, regions) {
     this.size = size;
     this.regions = regions;
     this.solution = Array(size).fill(null).map(() => Array(size).fill(0));
+    this.solutionsFound = 0;
+    this.maxSolutions = 2; // We only care if counters > 1
     this.usedCols = new Set();
     this.usedRegions = new Set();
   }
 
   generate() {
-    if (this.solve(0)) {
-      return this.solution;
-    }
-    return null; // No solution found (shouldn't happen with proper regions)
+    this.solve(0);
+    return {
+      solution: this.solution, // Returns the last found solution (if any)
+      count: this.solutionsFound
+    };
   }
 
   solve(row) {
+    if (this.solutionsFound >= this.maxSolutions) return;
+
     if (row === this.size) {
-      return true; // All queens placed
+      if (this.solutionsFound === 0) {
+        // Save first solution
+        this.firstSolution = this.solution.map(r => [...r]);
+      }
+      this.solutionsFound++;
+      return;
     }
 
     // Try each column in this row
+    // Order doesn't matter for counting, but random helps generation variety
     const cols = Array.from({ length: this.size }, (_, i) => i);
-    this.shuffleArray(cols); // Randomize for variety
+    this.shuffleArray(cols);
 
     for (const col of cols) {
       if (this.isValidPlacement(row, col)) {
@@ -264,18 +279,16 @@ class SolutionGenerator {
         this.usedRegions.add(this.regions[row][col]);
 
         // Recurse
-        if (this.solve(row + 1)) {
-          return true;
-        }
+        this.solve(row + 1);
 
         // Backtrack
         this.solution[row][col] = 0;
         this.usedCols.delete(col);
         this.usedRegions.delete(this.regions[row][col]);
+
+        if (this.solutionsFound >= this.maxSolutions) return;
       }
     }
-
-    return false;
   }
 
   isValidPlacement(row, col) {
@@ -313,27 +326,173 @@ class SolutionGenerator {
 }
 
 // ============================================================================
+// LOGICAL SOLVER (Ensures No Guessing)
+// ============================================================================
+
+class LogicalSolver {
+  constructor(size, regions) {
+    this.size = size;
+    this.regions = regions;
+    // 0 = Unknown, 1 = Queen, -1 = Crossed Out (X)
+    this.board = Array(size).fill(null).map(() => Array(size).fill(0));
+  }
+
+  // Returns true if fully solvable without guessing
+  isSolvable() {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      changed |= this.applyBasicRules();
+      if (!changed) {
+        // If stuck, check if completed
+        if (this.isSolved()) return true;
+        // TODO: Add advanced lookahead if needed, but basic rules cover "no guessing" mostly.
+        // For a strictly "no guessing" puzzle we usually want it solvable by basics.
+        return false;
+      }
+    }
+    return this.isSolved();
+  }
+
+  isSolved() {
+    let queens = 0;
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        if (this.board[r][c] === 1) queens++;
+      }
+    }
+    return queens === this.size;
+  }
+
+  applyBasicRules() {
+    let changed = false;
+
+    // 1. Cross out impossible cells (neighbors of queens, same row/col/region)
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        if (this.board[r][c] === 1) {
+          changed |= this.crossOutInvalid(r, c);
+        }
+      }
+    }
+
+    // 2. Find singles (only one spot left in Row, Col, or Region)
+    changed |= this.findHiddenSingles();
+
+    return changed;
+  }
+
+  crossOutInvalid(row, col) {
+    let changed = false;
+    const regionId = this.regions[row][col];
+
+    // Cross Row, Col, Region, Neighbors
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        if (this.board[r][c] !== 0) continue; // Already set
+
+        let isInvalid = false;
+        if (r === row && c !== col) isInvalid = true; // Review row
+        else if (c === col && r !== row) isInvalid = true; // Review col
+        else if (Math.abs(r - row) <= 1 && Math.abs(c - col) <= 1 && !(r === row && c === col)) isInvalid = true; // Review neighbors
+        else if (this.regions[r][c] === regionId && !(r === row && c === col)) isInvalid = true; // Review region
+
+        if (isInvalid) {
+          this.board[r][c] = -1; // Cross out
+          changed = true;
+        }
+      }
+    }
+    return changed;
+  }
+
+  findHiddenSingles() {
+    let changed = false;
+
+    // Rows
+    for (let r = 0; r < this.size; r++) {
+      const candidates = [];
+      for (let c = 0; c < this.size; c++) if (this.board[r][c] === 0) candidates.push({ r, c });
+      // If row has no queen and exactly 1 candidate
+      if (candidates.length === 1 && !this.rowHasQueen(r)) {
+        this.board[candidates[0].r][candidates[0].c] = 1;
+        changed = true;
+      }
+    }
+
+    // Cols
+    for (let c = 0; c < this.size; c++) {
+      const candidates = [];
+      for (let r = 0; r < this.size; r++) if (this.board[r][c] === 0) candidates.push({ r, c });
+      if (candidates.length === 1 && !this.colHasQueen(c)) {
+        this.board[candidates[0].r][candidates[0].c] = 1;
+        changed = true;
+      }
+    }
+
+    // Regions
+    const regionCells = {};
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        const rid = this.regions[r][c];
+        if (!regionCells[rid]) regionCells[rid] = [];
+        if (this.board[r][c] === 0) regionCells[rid].push({ r, c });
+      }
+    }
+    for (const rid in regionCells) {
+      if (regionCells[rid].length === 1 && !this.regionHasQueen(parseInt(rid))) {
+        const cell = regionCells[rid][0];
+        this.board[cell.r][cell.c] = 1;
+        changed = true;
+      }
+    }
+
+    return changed;
+  }
+
+  rowHasQueen(r) { return this.board[r].some(val => val === 1); }
+  colHasQueen(c) { return this.board.map(row => row[c]).some(val => val === 1); }
+  regionHasQueen(rid) {
+    for (let r = 0; r < this.size; r++)
+      for (let c = 0; c < this.size; c++)
+        if (this.regions[r][c] === rid && this.board[r][c] === 1) return true;
+    return false;
+  }
+}
+
+// ============================================================================
 // PUZZLE GENERATOR (Main Entry Point)
 // ============================================================================
 
 class PuzzleGenerator {
   static generate(difficulty) {
     const size = difficulty.size;
+    let attempts = 0;
 
-    // Generate regions
-    const regionGen = new RegionGenerator(size);
-    const regions = regionGen.generate();
+    while (attempts < 1000) { // Safety break
+      attempts++;
 
-    // Generate solution
-    const solutionGen = new SolutionGenerator(size, regions);
-    const solution = solutionGen.generate();
+      // 1. Generate random regions
+      const regionGen = new RegionGenerator(size);
+      const regions = regionGen.generate();
 
-    if (!solution) {
-      // Retry if no solution found (rare)
-      return PuzzleGenerator.generate(difficulty);
+      // 2. Check for unique solution
+      const solutionGen = new SolutionGenerator(size, regions);
+      const result = solutionGen.generate();
+
+      if (result.count === 1) {
+        // 3. Check for logical solvability (no guessing)
+        const solver = new LogicalSolver(size, regions);
+        if (solver.isSolvable()) {
+          console.log(`Generated valid puzzle in ${attempts} attempts`);
+          return new QueensPuzzle(size, regions, solutionGen.firstSolution);
+        }
+      }
     }
 
-    return new QueensPuzzle(size, regions, solution);
+    // Fallback if strict generation too hard (shouldn't happen often for small sizes)
+    console.warn("Failed to generate strict puzzle, retrying...");
+    return PuzzleGenerator.generate(difficulty);
   }
 }
 
