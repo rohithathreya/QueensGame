@@ -13,11 +13,13 @@ let autoHelper = null;
 let generatorWorker = null;
 let isGenerating = false;
 let generatingOverlay = null;
+let sharedPuzzleOverride = null;
+let lastCompletionMillis = null;
 
 // Settings
 let settings = {
-    autoX: true,  // Auto-mark impossible cells when queen placed
-    autoCheck: true,  // Auto-highlight violations
+    autoX: false,  // permanently off per request
+    autoCheck: true,  // permanently on per request
     showHint: false
 };
 
@@ -30,6 +32,7 @@ let currentHint = null;
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     ensureGeneratingOverlay();
+    tryLoadSharedPuzzleFromUrl();
     startNewGame();
     updateTimer();
 });
@@ -45,16 +48,6 @@ function setupEventListeners() {
     document.getElementById('undo-btn').addEventListener('click', undoMove);
     document.getElementById('hint-btn').addEventListener('click', showHint);
 
-    // Settings toggles
-    document.getElementById('auto-x-toggle').addEventListener('change', (e) => {
-        settings.autoX = e.target.checked;
-    });
-
-    document.getElementById('auto-check-toggle').addEventListener('change', (e) => {
-        settings.autoCheck = e.target.checked;
-        refreshAllCells();  // Refresh to show/hide violations
-    });
-
     document.getElementById('play-again-btn').addEventListener('click', () => {
         hideWinOverlay();
         startNewGame();
@@ -68,7 +61,10 @@ function setupEventListeners() {
 async function startNewGame() {
     setGeneratingState(true);
     try {
-        const puzzle = await generatePuzzleAsync(currentDifficulty);
+        const puzzle = await (sharedPuzzleOverride
+            ? Promise.resolve(sharedPuzzleOverride)
+            : generatePuzzleAsync(currentDifficulty));
+        sharedPuzzleOverride = null; // only consume once
         currentGameState = new GameState(puzzle);
         moveHistory = new MoveHistory();
         deductionEngine = new DeductionEngine(currentGameState);
@@ -403,11 +399,132 @@ function generatePuzzleAsync(difficulty) {
 }
 
 // ============================================================================
+// SHARED PUZZLE LOAD/SAVE & CHALLENGE SHARE
+// ============================================================================
+
+function encodePuzzle(puzzle) {
+    const payload = {
+        size: puzzle.size,
+        regions: puzzle.regions,
+        solution: puzzle.solution
+    };
+    const json = JSON.stringify(payload);
+    return btoa(unescape(encodeURIComponent(json)));
+}
+
+function decodePuzzle(code) {
+    const json = decodeURIComponent(escape(atob(code)));
+    const data = JSON.parse(json);
+    return new QueensPuzzle(data.size, data.regions, data.solution);
+}
+
+function tryLoadSharedPuzzleFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('puzzle');
+    if (!code) return;
+    try {
+        const puzzle = decodePuzzle(code);
+        sharedPuzzleOverride = puzzle;
+        // Adjust difficulty selector to match puzzle size
+        const match = Object.values(Difficulty).find(d => d.size === puzzle.size);
+        if (match) {
+            currentDifficulty = match;
+            const select = document.getElementById('difficulty-select');
+            if (select) select.value = match.name.toLowerCase();
+        }
+    } catch (e) {
+        console.error('Failed to load shared puzzle', e);
+    }
+}
+
+function buildShareLink(elapsedMillis) {
+    const code = encodePuzzle(currentGameState.puzzle);
+    const seconds = Math.floor(elapsedMillis / 1000);
+    const url = `${window.location.origin}${window.location.pathname}?puzzle=${encodeURIComponent(code)}&time=${seconds}`;
+    return url;
+}
+
+function updateChallengePreview() {
+    const preview = document.getElementById('challenge-preview');
+    const text = document.getElementById('challenge-text');
+    if (!preview || !text || !currentGameState) return;
+
+    const url = renderPuzzlePreview(currentGameState.puzzle);
+    preview.src = url;
+    const elapsed = lastCompletionMillis || currentGameState.getElapsedTime();
+    const seconds = Math.floor(elapsed / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    text.textContent = `I solved this queens puzzle in ${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}. Can you beat me?`;
+}
+
+function renderPuzzlePreview(puzzle) {
+    const size = puzzle.size;
+    const cell = 16;
+    const pad = 6;
+    const canvas = document.createElement('canvas');
+    canvas.width = size * cell + pad * 2;
+    canvas.height = size * cell + pad * 2;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#0a0e1a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+            const regionId = puzzle.regions[r][c];
+            const color = REGION_COLORS[regionId % REGION_COLORS.length];
+            ctx.fillStyle = color;
+            ctx.fillRect(pad + c * cell, pad + r * cell, cell - 1, cell - 1);
+        }
+    }
+    return canvas.toDataURL('image/png');
+}
+
+document.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'challenge-btn') {
+        handleChallengeShare();
+    }
+});
+
+function handleChallengeShare() {
+    if (!currentGameState || lastCompletionMillis == null) return;
+    const link = buildShareLink(lastCompletionMillis);
+    const message = document.getElementById('challenge-text')?.textContent || 'I solved this queens puzzle. Can you beat me?';
+    const shareData = {
+        title: 'Queens Puzzle Challenge',
+        text: message,
+        url: link
+    };
+    if (navigator.share) {
+        navigator.share(shareData).catch(() => {
+            copyToClipboard(link);
+        });
+    } else {
+        copyToClipboard(link);
+        alert('Link copied! Send it to your friend.');
+    }
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {});
+    } else {
+        const temp = document.createElement('textarea');
+        temp.value = text;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+    }
+}
+// ============================================================================
 // WIN HANDLING
 // ============================================================================
 
 function handleWin() {
     currentGameState.endTimeMillis = Date.now();
+    lastCompletionMillis = currentGameState.getElapsedTime();
 
     // Show win overlay
     showWinOverlay();
@@ -431,6 +548,8 @@ function showWinOverlay() {
         currentDifficulty.name;
     document.getElementById('win-size').textContent =
         `${currentGameState.puzzle.size}×${currentGameState.puzzle.size}`;
+
+    updateChallengePreview();
 
     overlay.classList.add('active');
 }

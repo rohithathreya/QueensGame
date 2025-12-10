@@ -64,23 +64,7 @@
 
     <!-- Settings Panel -->
     <div class="settings-panel">
-      <h3>Settings</h3>
-      <div class="setting-item">
-        <label class="toggle-label">
-          <input type="checkbox" id="auto-x-toggle" checked>
-          <span class="toggle-text">Auto-X placement</span>
-        </label>
-        <p class="setting-description">Automatically mark impossible cells when placing a queen</p>
-      </div>
-
-      <div class="setting-item">
-        <label class="toggle-label">
-          <input type="checkbox" id="auto-check-toggle" checked>
-          <span class="toggle-text">Auto-check violations</span>
-        </label>
-        <p class="setting-description">Highlight rule violations in real-time</p>
-      </div>
-
+      <h3>Tools</h3>
       <div class="setting-item">
         <button id="hint-btn" class="btn-hint">
           💡 Get Hint
@@ -119,6 +103,16 @@
           <span class="win-stat-value" id="win-size">7×7</span>
           <span class="win-stat-label">Board Size</span>
         </div>
+      </div>
+
+      <div class="challenge-section">
+        <div class="challenge-preview-wrap">
+          <img id="challenge-preview" class="challenge-preview" alt="Puzzle preview (blurred)">
+        </div>
+        <p id="challenge-text" class="challenge-text">I solved this puzzle. Can you beat me?</p>
+        <button id="challenge-btn" class="btn-primary">
+          Challenge a Friend
+        </button>
       </div>
 
       <button id="play-again-btn" class="btn-primary">
