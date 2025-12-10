@@ -7,7 +7,6 @@ self.onmessage = function (event) {
   try {
     // game.js defines PuzzleGenerator globally; ensure it's loaded
     if (typeof PuzzleGenerator === 'undefined') {
-      // In some bundlers importScripts may not be available; guard.
       if (typeof importScripts === 'function') {
         importScripts('game.js');
       }
@@ -18,6 +17,17 @@ self.onmessage = function (event) {
     }
 
     const puzzle = PuzzleGenerator.generate(difficulty);
+
+    // Belt-and-suspenders logical verification inside worker to avoid leaking any bad puzzle
+    if (typeof LogicalSolver !== 'undefined') {
+      const solver = new LogicalSolver(puzzle.size, puzzle.regions, puzzle.solution);
+      const check = solver.solveLogically({ allowNishio: true, stepLimit: 1500 });
+      if (!check.solved) {
+        postMessage({ status: 'error', message: 'Generated puzzle failed logical verify, retry.' });
+        return;
+      }
+    }
+
     postMessage({
       status: 'ok',
       puzzle: {

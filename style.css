@@ -504,6 +504,21 @@ select {
   letter-spacing: 0.05em;
 }
 
+.generating-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(2px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.generating-overlay.active {
+  display: flex;
+}
+
 /* Hint highlighting */
 .cell.hint {
   animation: hintPulse 1.5s ease infinite;

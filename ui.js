@@ -12,6 +12,7 @@ let deductionEngine = null;
 let autoHelper = null;
 let generatorWorker = null;
 let isGenerating = false;
+let generatingOverlay = null;
 
 // Settings
 let settings = {
@@ -28,6 +29,7 @@ let currentHint = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
+    ensureGeneratingOverlay();
     startNewGame();
     updateTimer();
 });
@@ -339,9 +341,8 @@ function updateTimer() {
 
 function setGeneratingState(flag) {
     isGenerating = flag;
-    const board = document.getElementById('game-board');
-    if (flag && board) {
-        board.innerHTML = '<div class="loading">Generating…</div>';
+    if (generatingOverlay) {
+        generatingOverlay.classList.toggle('active', flag);
     }
     updateButtons();
 }
@@ -350,6 +351,20 @@ function ensureWorker() {
     if (generatorWorker || typeof Worker === 'undefined') return generatorWorker;
     generatorWorker = new Worker('generatorWorker.js');
     return generatorWorker;
+}
+
+function ensureGeneratingOverlay() {
+    if (generatingOverlay) return generatingOverlay;
+    const board = document.getElementById('game-board');
+    if (!board) return null;
+    const overlay = document.createElement('div');
+    overlay.id = 'generating-overlay';
+    overlay.className = 'generating-overlay';
+    overlay.innerHTML = '<div class="loading">Generating…</div>';
+    board.parentElement.style.position = 'relative';
+    board.parentElement.appendChild(overlay);
+    generatingOverlay = overlay;
+    return overlay;
 }
 
 function generatePuzzleAsync(difficulty) {
