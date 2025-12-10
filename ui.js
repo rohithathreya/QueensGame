@@ -16,6 +16,8 @@ let generatingOverlay = null;
 let sharedPuzzleOverride = null;
 let lastCompletionMillis = null;
 let lastPreviewDataUrl = null;
+let optimalPath = null;
+let lastSkillAnalysis = null;
 // Default OG worker base (can be overridden by window.WORKER_OG_BASE if needed)
 const DEFAULT_OG_WORKER_BASE = 'https://queens-og.rohithmathreya.workers.dev';
 const OG_WORKER_BASE = typeof window !== 'undefined'
@@ -131,6 +133,19 @@ async function startNewGame() {
         deductionEngine = new DeductionEngine(currentGameState);
         autoHelper = new AutoHelper(currentGameState);
         currentHint = null;
+        lastSkillAnalysis = null;
+
+        // Compute optimal path in background (won't block UI)
+        setTimeout(() => {
+            try {
+                const pathFinder = new OptimalPathFinder(puzzle);
+                optimalPath = pathFinder.findOptimalPath();
+                console.log(`Optimal path computed: ${optimalPath.queenPlacements.length} queen placements, cost ${optimalPath.totalCost}`);
+            } catch (e) {
+                console.warn('Failed to compute optimal path:', e);
+                optimalPath = null;
+            }
+        }, 100);
 
         renderBoard();
         updateStats();
@@ -645,6 +660,18 @@ function handleWin() {
     currentGameState.endTimeMillis = Date.now();
     lastCompletionMillis = currentGameState.getElapsedTime();
 
+    // Run skill analysis
+    if (optimalPath && moveHistory) {
+        try {
+            const analyzer = new SkillAnalyzer(currentGameState.puzzle, optimalPath);
+            lastSkillAnalysis = analyzer.analyze(moveHistory.getTimedMoves(), lastCompletionMillis);
+            console.log('Skill analysis:', lastSkillAnalysis);
+        } catch (e) {
+            console.warn('Failed to analyze skill:', e);
+            lastSkillAnalysis = null;
+        }
+    }
+
     // Show win overlay
     showWinOverlay();
 
@@ -668,9 +695,100 @@ function showWinOverlay() {
     document.getElementById('win-size').textContent =
         `${currentGameState.puzzle.size}×${currentGameState.puzzle.size}`;
 
+    // Update skill analysis display
+    updateSkillAnalysisDisplay();
+
     updateChallengePreview();
 
     overlay.classList.add('active');
+}
+
+function updateSkillAnalysisDisplay() {
+    const container = document.getElementById('skill-analysis');
+    if (!container) return;
+
+    if (!lastSkillAnalysis) {
+        container.innerHTML = '<p class="analysis-pending">Analyzing...</p>';
+        return;
+    }
+
+    const a = lastSkillAnalysis;
+    const tier = a.tier;
+
+    container.innerHTML = `
+        <div class="skill-score-container">
+            <div class="skill-score" style="color: ${tier.color}">
+                <span class="score-value">${a.score}</span>
+                <span class="score-label">SKILL SCORE</span>
+            </div>
+            <div class="skill-tier" style="background: ${tier.color}20; border-color: ${tier.color}">
+                <span class="tier-emoji">${tier.emoji}</span>
+                <span class="tier-name">${tier.name}</span>
+            </div>
+        </div>
+
+        <div class="analysis-breakdown">
+            <h4>Performance Breakdown</h4>
+            <div class="breakdown-grid">
+                <div class="breakdown-item">
+                    <span class="breakdown-value">${a.efficiency}%</span>
+                    <span class="breakdown-label">Efficiency</span>
+                    <span class="breakdown-desc">vs optimal path</span>
+                </div>
+                <div class="breakdown-item">
+                    <span class="breakdown-value">${a.orderSimilarity}%</span>
+                    <span class="breakdown-label">Move Order</span>
+                    <span class="breakdown-desc">similarity to optimal</span>
+                </div>
+                <div class="breakdown-item">
+                    <span class="breakdown-value">${a.timeFactor}%</span>
+                    <span class="breakdown-label">Speed</span>
+                    <span class="breakdown-desc">vs expected time</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="analysis-stats">
+            <div class="stat-row">
+                <span class="stat-label">Total Moves</span>
+                <span class="stat-value">${a.totalMoves}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Queens Placed</span>
+                <span class="stat-value">${a.queenPlacements}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Markers Used</span>
+                <span class="stat-value">${a.markerPlacements}</span>
+            </div>
+            <div class="stat-row ${a.undoCount > 0 ? 'stat-penalty' : ''}">
+                <span class="stat-label">Undos</span>
+                <span class="stat-value">${a.undoCount}</span>
+            </div>
+            <div class="stat-row ${a.detourCount > 0 ? 'stat-penalty' : ''}">
+                <span class="stat-label">Detours</span>
+                <span class="stat-value">${a.detourCount}</span>
+            </div>
+        </div>
+
+        <div class="optimal-comparison">
+            <h4>vs Optimal Solution</h4>
+            <div class="comparison-bar">
+                <div class="bar-label">Your Cost</div>
+                <div class="bar-container">
+                    <div class="bar-fill bar-user" style="width: ${Math.min(100, (a.userEffectiveCost / Math.max(a.optimalCost, 1)) * 50)}%"></div>
+                </div>
+                <span class="bar-value">${a.userEffectiveCost}</span>
+            </div>
+            <div class="comparison-bar">
+                <div class="bar-label">Optimal Cost</div>
+                <div class="bar-container">
+                    <div class="bar-fill bar-optimal" style="width: 50%"></div>
+                </div>
+                <span class="bar-value">${a.optimalCost}</span>
+            </div>
+        </div>
+    `;
 }
 
 function hideWinOverlay() {

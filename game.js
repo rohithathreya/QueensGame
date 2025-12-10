@@ -1059,10 +1059,13 @@ class MoveHistory {
   constructor() {
     this.moves = []; // Stack of moves
     this.redoStack = []; // Stack for redo
+    this.timedMoves = []; // Full history with timestamps for analysis
   }
 
   recordMove(row, col, oldState, newState) {
-    this.moves.push({ row, col, oldState, newState });
+    const timestamp = Date.now();
+    this.moves.push({ row, col, oldState, newState, timestamp });
+    this.timedMoves.push({ row, col, oldState, newState, timestamp });
     this.redoStack = []; // Clear redo stack when new move is made
   }
 
@@ -1071,6 +1074,7 @@ class MoveHistory {
 
     const move = this.moves.pop();
     this.redoStack.push(move);
+    this.timedMoves.push({ row: move.row, col: move.col, oldState: move.newState, newState: move.oldState, timestamp: Date.now(), isUndo: true });
 
     // Revert the move
     gameState.cellStates[move.row][move.col] = move.oldState;
@@ -1083,6 +1087,7 @@ class MoveHistory {
 
     const move = this.redoStack.pop();
     this.moves.push(move);
+    this.timedMoves.push({ row: move.row, col: move.col, oldState: move.oldState, newState: move.newState, timestamp: Date.now(), isRedo: true });
 
     // Reapply the move
     gameState.cellStates[move.row][move.col] = move.newState;
@@ -1093,6 +1098,7 @@ class MoveHistory {
   clear() {
     this.moves = [];
     this.redoStack = [];
+    this.timedMoves = [];
   }
 
   canUndo() {
@@ -1101,5 +1107,442 @@ class MoveHistory {
 
   canRedo() {
     return this.redoStack.length > 0;
+  }
+
+  getTimedMoves() {
+    return this.timedMoves;
+  }
+}
+
+// ============================================================================
+// OPTIMAL PATH FINDER (Uniform-Cost Search over Logical Deductions)
+// ============================================================================
+
+// Step costs for different deduction types
+const STEP_COSTS = {
+  PLACE_QUEEN_ROW: 1,      // Hidden single in row - easiest
+  PLACE_QUEEN_COL: 1,      // Hidden single in column
+  PLACE_QUEEN_REGION: 1,   // Hidden single in region
+  POINTING_ELIMINATION: 2, // Pointing pairs/lines - moderate
+  NISHIO_ELIMINATION: 4,   // Contradiction-based elimination - hardest
+  ELIMINATE: 0             // Basic elimination (consequence of queen placement)
+};
+
+class OptimalPathFinder {
+  constructor(puzzle) {
+    this.puzzle = puzzle;
+    this.size = puzzle.size;
+    this.regions = puzzle.regions;
+    this.solution = puzzle.solution;
+  }
+
+  /**
+   * Find the minimum-cost logical deduction path to solve the puzzle.
+   * Uses uniform-cost search (Dijkstra) over logical states.
+   * Returns { path: [...steps], totalCost, queenPlacements: [...] }
+   */
+  findOptimalPath() {
+    // State: board configuration encoded as string
+    // We only track queen placements (what truly matters for progress)
+    const startSolver = new LogicalSolver(this.size, this.regions, this.solution);
+    const startState = this.encodeState(startSolver);
+
+    // Priority queue: [cost, solver, path]
+    const pq = [[0, startSolver, []]];
+    const visited = new Map(); // state -> min cost to reach it
+    visited.set(startState, 0);
+
+    let iterations = 0;
+    const maxIterations = 50000; // Safety limit
+
+    while (pq.length > 0 && iterations < maxIterations) {
+      iterations++;
+
+      // Pop lowest cost state
+      pq.sort((a, b) => a[0] - b[0]);
+      const [cost, solver, path] = pq.shift();
+
+      // Check if solved
+      if (solver.isSolved()) {
+        return {
+          path: path,
+          totalCost: cost,
+          queenPlacements: path.filter(s => s.type.startsWith('PLACE_QUEEN')),
+          iterations: iterations
+        };
+      }
+
+      // Generate all possible next logical steps
+      const nextSteps = this.getAllNextSteps(solver);
+
+      for (const step of nextSteps) {
+        const newSolver = solver.clone();
+        newSolver.steps = []; // Reset steps for clean tracking
+
+        // Apply the step
+        let result;
+        if (step.type.startsWith('PLACE_QUEEN')) {
+          result = newSolver.setQueen(step.row, step.col, step.reason, step.type);
+        } else {
+          result = newSolver.setImpossible(step.row, step.col, step.reason, step.type);
+        }
+
+        if (result.contradiction) continue;
+
+        // Propagate basic eliminations to fixed point (free cost)
+        const propResult = newSolver.solveToFixedPoint({ allowNishio: false, stepLimit: 1 });
+        if (propResult.contradiction) continue;
+
+        const newState = this.encodeState(newSolver);
+        const stepCost = STEP_COSTS[step.type] || 1;
+        const newCost = cost + stepCost;
+
+        if (!visited.has(newState) || visited.get(newState) > newCost) {
+          visited.set(newState, newCost);
+          const newPath = [...path, { ...step, cost: stepCost }];
+          pq.push([newCost, newSolver, newPath]);
+        }
+      }
+    }
+
+    // Fallback: use the default solver's path
+    const fallbackSolver = new LogicalSolver(this.size, this.regions, this.solution);
+    fallbackSolver.solveLogically();
+    return {
+      path: fallbackSolver.steps.filter(s => s.type.startsWith('PLACE_QUEEN')).map(s => ({ ...s, cost: STEP_COSTS[s.type] || 1 })),
+      totalCost: fallbackSolver.getDifficultyScore(),
+      queenPlacements: fallbackSolver.steps.filter(s => s.type.startsWith('PLACE_QUEEN')),
+      iterations: iterations,
+      fallback: true
+    };
+  }
+
+  /**
+   * Get all admissible next logical steps from current state.
+   * Only returns queen placements (the meaningful progress steps).
+   */
+  getAllNextSteps(solver) {
+    const steps = [];
+
+    // Check for hidden singles in rows
+    for (let r = 0; r < this.size; r++) {
+      const info = solver.rowInfo(r);
+      if (info.queens === 0 && info.candidates.length === 1) {
+        steps.push({
+          type: 'PLACE_QUEEN_ROW',
+          row: info.candidates[0].r,
+          col: info.candidates[0].c,
+          reason: 'Only valid cell in row ' + r
+        });
+      }
+    }
+
+    // Check for hidden singles in columns
+    for (let c = 0; c < this.size; c++) {
+      const info = solver.colInfo(c);
+      if (info.queens === 0 && info.candidates.length === 1) {
+        steps.push({
+          type: 'PLACE_QUEEN_COL',
+          row: info.candidates[0].r,
+          col: info.candidates[0].c,
+          reason: 'Only valid cell in column ' + c
+        });
+      }
+    }
+
+    // Check for hidden singles in regions
+    for (let rid = 0; rid < this.size; rid++) {
+      const info = solver.regionInfo(rid);
+      if (info.queens === 0 && info.candidates.length === 1) {
+        steps.push({
+          type: 'PLACE_QUEEN_REGION',
+          row: info.candidates[0].r,
+          col: info.candidates[0].c,
+          reason: 'Only valid cell in region ' + rid
+        });
+      }
+    }
+
+    // If no simple singles, try Nishio eliminations that lead to singles
+    if (steps.length === 0) {
+      const nishioSteps = this.findNishioSteps(solver);
+      steps.push(...nishioSteps);
+    }
+
+    // Deduplicate by (row, col)
+    const seen = new Set();
+    return steps.filter(s => {
+      const key = `${s.row},${s.col}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  findNishioSteps(solver) {
+    const steps = [];
+
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        if (!solver.isCandidate(r, c)) continue;
+
+        // Try placing queen and see if it leads to contradiction
+        const trial = solver.clone();
+        const setRes = trial.setQueen(r, c);
+        if (setRes.contradiction) {
+          // This cell can be eliminated
+          steps.push({
+            type: 'NISHIO_ELIMINATION',
+            row: r,
+            col: c,
+            reason: 'Placing queen here leads to immediate contradiction'
+          });
+          continue;
+        }
+
+        const propRes = trial.solveToFixedPoint({ allowNishio: false });
+        if (propRes.contradiction || !trial.isConsistent()) {
+          steps.push({
+            type: 'NISHIO_ELIMINATION',
+            row: r,
+            col: c,
+            reason: 'Placing queen here eventually leads to contradiction'
+          });
+        }
+      }
+    }
+
+    // After eliminations, check if any singles emerge
+    if (steps.length > 0) {
+      const testSolver = solver.clone();
+      for (const step of steps) {
+        testSolver.setImpossible(step.row, step.col);
+      }
+      const afterElim = this.getAllNextSteps(testSolver);
+      // Add queen placements that become available after eliminations
+      for (const s of afterElim) {
+        if (s.type.startsWith('PLACE_QUEEN')) {
+          s.type = 'PLACE_QUEEN_REGION'; // Mark as requiring Nishio first
+          s.reason = 'Available after contradiction-based elimination';
+        }
+      }
+    }
+
+    return steps;
+  }
+
+  encodeState(solver) {
+    // Encode only queen positions (the meaningful state)
+    let code = '';
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        code += solver.board[r][c] === 1 ? '1' : '0';
+      }
+    }
+    return code;
+  }
+}
+
+// ============================================================================
+// SKILL ANALYZER (Compare User Path to Optimal)
+// ============================================================================
+
+class SkillAnalyzer {
+  constructor(puzzle, optimalPath) {
+    this.puzzle = puzzle;
+    this.optimalPath = optimalPath;
+    this.optimalQueenOrder = optimalPath.queenPlacements.map(s => `${s.row},${s.col}`);
+    this.optimalCost = optimalPath.totalCost;
+  }
+
+  /**
+   * Analyze the user's move sequence and compute skill metrics.
+   * @param {Array} timedMoves - Array of {row, col, oldState, newState, timestamp, isUndo?, isRedo?}
+   * @param {number} totalTimeMs - Total time taken to solve
+   * @returns {Object} Analysis results
+   */
+  analyze(timedMoves, totalTimeMs) {
+    const size = this.puzzle.size;
+
+    // Extract user's queen placements in order
+    const userQueenPlacements = [];
+    const currentQueens = new Set();
+
+    for (const move of timedMoves) {
+      const key = `${move.row},${move.col}`;
+      if (move.newState === CellState.QUEEN) {
+        if (!currentQueens.has(key)) {
+          userQueenPlacements.push({
+            row: move.row,
+            col: move.col,
+            timestamp: move.timestamp,
+            key: key
+          });
+          currentQueens.add(key);
+        }
+      } else if (move.oldState === CellState.QUEEN) {
+        // Queen removed
+        currentQueens.delete(key);
+        // Mark as removed for detour tracking
+        userQueenPlacements.push({
+          row: move.row,
+          col: move.col,
+          timestamp: move.timestamp,
+          key: key,
+          removed: true
+        });
+      }
+    }
+
+    // Count stats
+    const undoCount = timedMoves.filter(m => m.isUndo).length;
+    const redoCount = timedMoves.filter(m => m.isRedo).length;
+    const markerPlacements = timedMoves.filter(m => m.newState === CellState.MARKER && !m.isUndo).length;
+    const totalMoves = timedMoves.length;
+
+    // Calculate detours (queen placements that were later removed)
+    const finalQueens = new Set();
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (this.puzzle.solution[r][c] === 1) {
+          finalQueens.add(`${r},${c}`);
+        }
+      }
+    }
+
+    const wrongQueenPlacements = userQueenPlacements.filter(p => !p.removed && !finalQueens.has(p.key));
+    const detourCount = userQueenPlacements.filter(p => p.removed).length / 2; // Each detour = place + remove
+
+    // Calculate order similarity (how close to optimal order)
+    const userFinalOrder = userQueenPlacements
+      .filter(p => !p.removed && finalQueens.has(p.key))
+      .map(p => p.key);
+
+    const orderSimilarity = this.calculateOrderSimilarity(userFinalOrder, this.optimalQueenOrder);
+
+    // Calculate user's effective cost
+    // Base cost = optimal cost
+    // Penalties: undos, wrong placements, detours
+    const userEffectiveCost = this.optimalCost +
+      (undoCount * 0.5) +
+      (detourCount * 2) +
+      (wrongQueenPlacements.length * 3);
+
+    // Efficiency ratio (1.0 = optimal, lower = less efficient)
+    const efficiency = Math.min(1.0, this.optimalCost / Math.max(userEffectiveCost, this.optimalCost));
+
+    // Time factor
+    // Expected time: ~3-5 seconds per queen placement for optimal solver
+    const expectedTimeMs = size * 4000; // 4 seconds per queen as baseline
+    const timeFactor = Math.min(1.5, Math.max(0.5, expectedTimeMs / Math.max(totalTimeMs, 1000)));
+
+    // Final score (0-100)
+    // Score = 100 * efficiency * sqrt(timeFactor) * orderBonus
+    const orderBonus = 0.8 + (0.2 * orderSimilarity); // 80-100% based on order
+    const rawScore = 100 * efficiency * Math.sqrt(timeFactor) * orderBonus;
+    const finalScore = Math.round(Math.max(0, Math.min(100, rawScore)));
+
+    // Skill tier
+    const tier = this.getTier(finalScore);
+
+    // Per-move analysis
+    const moveAnalysis = this.analyzeMoves(userQueenPlacements, timedMoves);
+
+    return {
+      // Core metrics
+      score: finalScore,
+      tier: tier,
+
+      // Efficiency breakdown
+      efficiency: Math.round(efficiency * 100),
+      timeFactor: Math.round(timeFactor * 100),
+      orderSimilarity: Math.round(orderSimilarity * 100),
+
+      // Stats
+      totalTimeMs: totalTimeMs,
+      totalMoves: totalMoves,
+      queenPlacements: userFinalOrder.length,
+      markerPlacements: markerPlacements,
+      undoCount: undoCount,
+      redoCount: redoCount,
+      detourCount: Math.round(detourCount),
+
+      // Comparison to optimal
+      optimalCost: this.optimalCost,
+      optimalSteps: this.optimalQueenOrder.length,
+      userEffectiveCost: Math.round(userEffectiveCost * 10) / 10,
+
+      // Detailed analysis
+      moveAnalysis: moveAnalysis
+    };
+  }
+
+  calculateOrderSimilarity(userOrder, optimalOrder) {
+    if (userOrder.length === 0 || optimalOrder.length === 0) return 0;
+
+    // Longest common subsequence ratio
+    const lcs = this.longestCommonSubsequence(userOrder, optimalOrder);
+    return lcs / Math.max(userOrder.length, optimalOrder.length);
+  }
+
+  longestCommonSubsequence(a, b) {
+    const m = a.length, n = b.length;
+    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (a[i - 1] === b[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+    }
+
+    return dp[m][n];
+  }
+
+  analyzeMoves(userQueenPlacements, allMoves) {
+    const analysis = [];
+    const optimalSet = new Set(this.optimalQueenOrder);
+
+    let optimalIndex = 0;
+    for (const placement of userQueenPlacements) {
+      if (placement.removed) continue;
+
+      const isCorrectCell = optimalSet.has(placement.key);
+      const isOptimalOrder = this.optimalQueenOrder[optimalIndex] === placement.key;
+
+      let verdict;
+      if (isOptimalOrder) {
+        verdict = 'OPTIMAL';
+        optimalIndex++;
+      } else if (isCorrectCell) {
+        verdict = 'CORRECT_OUT_OF_ORDER';
+        // Find where this cell is in optimal order
+        const optIdx = this.optimalQueenOrder.indexOf(placement.key);
+        if (optIdx >= 0) optimalIndex = Math.max(optimalIndex, optIdx + 1);
+      } else {
+        verdict = 'WRONG';
+      }
+
+      analysis.push({
+        row: placement.row,
+        col: placement.col,
+        verdict: verdict,
+        optimalNext: this.optimalQueenOrder[optimalIndex - 1] || null
+      });
+    }
+
+    return analysis;
+  }
+
+  getTier(score) {
+    if (score >= 95) return { name: 'Grandmaster', emoji: '👑', color: '#FFD700' };
+    if (score >= 85) return { name: 'Expert', emoji: '🏆', color: '#C0C0C0' };
+    if (score >= 70) return { name: 'Advanced', emoji: '⭐', color: '#CD7F32' };
+    if (score >= 50) return { name: 'Intermediate', emoji: '📈', color: '#4CAF50' };
+    if (score >= 30) return { name: 'Beginner', emoji: '🌱', color: '#2196F3' };
+    return { name: 'Novice', emoji: '🎯', color: '#9E9E9E' };
   }
 }

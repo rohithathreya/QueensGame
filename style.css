@@ -579,6 +579,205 @@ select {
 }
 
 /* ============================================================================
+   SKILL ANALYSIS
+   ============================================================================ */
+
+.skill-analysis {
+  width: 100%;
+  margin: var(--spacing-md) 0;
+  animation: fadeInUp 0.5s ease 0.3s backwards;
+}
+
+.analysis-pending {
+  text-align: center;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.skill-score-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-md);
+}
+
+.skill-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.score-value {
+  font-size: 3.5rem;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 0 30px currentColor;
+}
+
+.score-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  opacity: 0.8;
+  margin-top: 4px;
+}
+
+.skill-tier {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border: 2px solid;
+}
+
+.tier-emoji {
+  font-size: 2rem;
+}
+
+.tier-name {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.analysis-breakdown {
+  background: var(--glass-bg);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.analysis-breakdown h4 {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-sm);
+}
+
+.breakdown-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.breakdown-value {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--accent-primary);
+}
+
+.breakdown-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.breakdown-desc {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.analysis-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-md);
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--glass-bg);
+  border-radius: var(--radius-sm);
+}
+
+.stat-row .stat-label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.stat-row .stat-value {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+
+.stat-row.stat-penalty {
+  background: rgba(255, 59, 48, 0.1);
+}
+
+.stat-row.stat-penalty .stat-value {
+  color: var(--error);
+}
+
+.optimal-comparison {
+  background: var(--glass-bg);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+}
+
+.optimal-comparison h4 {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.comparison-bar {
+  display: grid;
+  grid-template-columns: 80px 1fr 40px;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.comparison-bar .bar-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.comparison-bar .bar-container {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.comparison-bar .bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.comparison-bar .bar-user {
+  background: linear-gradient(90deg, var(--accent-primary), hsl(280, 90%, 55%));
+}
+
+.comparison-bar .bar-optimal {
+  background: linear-gradient(90deg, var(--success), hsl(160, 70%, 55%));
+}
+
+.comparison-bar .bar-value {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+/* ============================================================================
    ANIMATIONS
    ============================================================================ */
 
