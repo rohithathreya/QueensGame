@@ -17,18 +17,18 @@ const Difficulty = {
   HARD: { name: 'Hard', size: 8 }
 };
 
-// Vibrant color palette for regions (hex format for alpha support)
+// High-contrast color palette for easy region differentiation
 const REGION_COLORS = [
-  '#A855F7',  // Vibrant purple
-  '#EC4899',  // Hot pink
-  '#38BDF8',  // Bright cyan
-  '#2DD4BF',  // Teal
-  '#FBBF24',  // Gold
-  '#F97316',  // Coral
-  '#4ADE80',  // Lime green
-  '#A78BFA',  // Lavender
-  '#22D3EE',  // Aqua
-  '#FACC15'   // Yellow
+  '#FF3B30',  // Red
+  '#007AFF',  // Blue
+  '#34C759',  // Green
+  '#FF9500',  // Orange
+  '#AF52DE',  // Purple
+  '#00C7BE',  // Cyan/Teal
+  '#FFCC00',  // Yellow
+  '#FF2D92',  // Magenta/Pink
+  '#8BC34A',  // Lime
+  '#795548'   // Brown
 ];
 
 // ============================================================================
