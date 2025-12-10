@@ -595,67 +595,22 @@ document.addEventListener('click', (e) => {
 
 function handleChallengeShare() {
     if (!currentGameState || lastCompletionMillis == null) return;
-    // Ensure preview exists
-    if (!lastPreviewDataUrl) {
-        updateChallengePreview();
-    }
 
     const link = buildShareLink(lastCompletionMillis);
     const message = document.getElementById('challenge-text')?.textContent || 'I solved this queens puzzle. Can you beat me?';
-    const baseShare = {
+    const shareData = {
         title: 'Queens Puzzle Challenge',
         text: message,
         url: link
     };
 
-    const tryShareWithImage = async () => {
-        try {
-            const blob = await getPreviewBlob();
-            if (!blob) return false;
-            const file = new File([blob], 'puzzle.png', { type: blob.type || 'image/png' });
-            // Try multiple payload shapes to satisfy picky canShare implementations
-            const payloads = [
-                { title: baseShare.title, text: baseShare.text, url: baseShare.url, files: [file] },
-                { title: baseShare.title, text: baseShare.text, files: [file] },
-                { title: baseShare.title, url: baseShare.url, files: [file] },
-                { text: baseShare.text, url: baseShare.url, files: [file] },
-                { files: [file] }
-            ];
-            for (const data of payloads) {
-                if (navigator.canShare && navigator.canShare(data)) {
-                    await navigator.share(data);
-                    return true;
-                }
-            }
-            // Last-ditch: attempt share with url only
-            try {
-                await navigator.share(baseShare);
-                return true;
-            } catch (_) {
-                return false;
-            }
-        } catch (err) {
-            // If image share failed, fall back to URL-only share without canShare gating
-            try {
-                await navigator.share(baseShare);
-                return true;
-            } catch (_) {
-                return false;
-            }
-        }
-    };
-
     if (navigator.share) {
-        tryShareWithImage().then((usedImage) => {
-            if (usedImage) return;
-            navigator.share(baseShare).catch(() => {
-                copyToClipboard(link);
-                openPreviewIfPossible();
-            });
+        navigator.share(shareData).catch(() => {
+            copyToClipboard(link);
+            alert('Link copied! Send it to your friend.');
         });
     } else {
         copyToClipboard(link);
-        openPreviewIfPossible();
         alert('Link copied! Send it to your friend.');
     }
 }
