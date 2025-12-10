@@ -351,6 +351,7 @@ class LogicalSolver {
       PLACE_QUEEN_ROW: 1,
       PLACE_QUEEN_COL: 1,
       PLACE_QUEEN_REGION: 1,
+      POINTING_ELIMINATION: 2,
       NISHIO_ELIMINATION: 3
     };
     return this.steps.reduce((acc, step) => acc + (weights[step.type] || 0), 0);
@@ -494,6 +495,10 @@ class LogicalSolver {
     if (singles.contradiction) return { contradiction: true };
     if (singles.changed) changed = true;
 
+    const pointing = this.applyPointingEliminations();
+    if (pointing.contradiction) return { contradiction: true };
+    if (pointing.changed) changed = true;
+
     return { changed };
   }
 
@@ -540,6 +545,49 @@ class LogicalSolver {
     return { changed };
   }
 
+  applyPointingEliminations() {
+    // Sudoku-style "pointing pairs/lines":
+    // If all candidates of a region lie in the same row (or column),
+    // eliminate other candidates in that row (or column) outside the region.
+    let changed = false;
+    for (let rid = 0; rid < this.size; rid++) {
+      const regionCandidates = [];
+      for (let r = 0; r < this.size; r++) {
+        for (let c = 0; c < this.size; c++) {
+          if (this.regions[r][c] !== rid) continue;
+          if (this.board[r][c] === 0) regionCandidates.push({ r, c });
+        }
+      }
+      if (regionCandidates.length === 0) continue;
+
+      const rows = new Set(regionCandidates.map(c => c.r));
+      const cols = new Set(regionCandidates.map(c => c.c));
+
+      if (rows.size === 1) {
+        const row = regionCandidates[0].r;
+        for (let c = 0; c < this.size; c++) {
+          if (this.regions[row][c] === rid) continue;
+          if (!this.isCandidate(row, c)) continue;
+          const res = this.setImpossible(row, c, "Region's options confined to this row", 'POINTING_ELIMINATION');
+          if (res.contradiction) return { contradiction: true };
+          if (res.changed) changed = true;
+        }
+      }
+
+      if (cols.size === 1) {
+        const col = regionCandidates[0].c;
+        for (let r = 0; r < this.size; r++) {
+          if (this.regions[r][col] === rid) continue;
+          if (!this.isCandidate(r, col)) continue;
+          const res = this.setImpossible(r, col, "Region's options confined to this column", 'POINTING_ELIMINATION');
+          if (res.contradiction) return { contradiction: true };
+          if (res.changed) changed = true;
+        }
+      }
+    }
+    return { changed };
+  }
+
   attemptNishioElimination(stepLimit) {
     let changed = false;
 
@@ -557,7 +605,10 @@ class LogicalSolver {
           continue;
         }
 
-        const res = trial.solveToFixedPoint({ allowNishio: false });
+        const res = trial.solveToFixedPoint({
+          allowNishio: true, // allow a deeper logical cascade inside the assumption
+          stepLimit: stepLimit || 200
+        });
         if (res.contradiction || !trial.isConsistent()) {
           const elim = this.setImpossible(r, c, "Assuming a queen here breaks the puzzle", 'NISHIO_ELIMINATION');
           if (elim.contradiction) return { contradiction: true };
@@ -572,7 +623,8 @@ class LogicalSolver {
 
   solveToFixedPoint({ allowNishio = true, stepLimit = null } = {}) {
     let guard = 0;
-    while (guard < 400) {
+    const cap = stepLimit ? Math.max(400, stepLimit * 2) : 800;
+    while (guard < cap) {
       guard++;
       const elim = this.applyCoreEliminations();
       if (elim.contradiction) return { contradiction: true };
@@ -640,8 +692,8 @@ class LogicalSolver {
     return true;
   }
 
-  solveLogically() {
-    const result = this.solveToFixedPoint({ allowNishio: true });
+  solveLogically({ allowNishio = true, stepLimit = null } = {}) {
+    const result = this.solveToFixedPoint({ allowNishio, stepLimit });
     if (result.contradiction) {
       return { solved: false, difficultyScore: this.getDifficultyScore(), usedAdvanced: this.usedAdvancedStep(), steps: this.steps };
     }
@@ -671,11 +723,21 @@ class PuzzleGenerator {
     let attempts = 0;
     const targets = PuzzleGenerator.getDifficultyTargets(difficulty);
     let minScore = targets.minScore;
+    let minSteps = targets.minSteps;
     const requireAdvanced = targets.requireAdvanced;
     let fallbackPuzzle = null;
     let fallbackScore = -Infinity;
+    let fallbackSteps = -Infinity;
+    const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const timeLimitMs = size >= 8 ? 3500 : 2500;
+    const stepLimitForGen = size >= 8 ? 400 : null;
 
     while (attempts < 2000) { // Guard to prevent runaway generation
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      if (now - start > timeLimitMs) {
+        console.warn(`Generation time limit reached (${timeLimitMs}ms) after ${attempts} attempts`);
+        break;
+      }
       attempts++;
 
       // 1. Generate random regions
@@ -689,19 +751,21 @@ class PuzzleGenerator {
       if (result.count === 1) {
         // 3. Check for logical solvability (no guessing) and difficulty
         const solver = new LogicalSolver(size, regions, solutionGen.firstSolution);
-        const logicResult = solver.solveLogically();
+        const logicResult = solver.solveLogically({ stepLimit: stepLimitForGen });
 
         const meetsDifficulty = logicResult.solved &&
           logicResult.difficultyScore >= minScore &&
+          logicResult.steps.length >= minSteps &&
           (!requireAdvanced || logicResult.usedAdvanced);
 
         if (logicResult.solved && logicResult.difficultyScore > fallbackScore) {
           fallbackPuzzle = new QueensPuzzle(size, regions, solutionGen.firstSolution);
           fallbackScore = logicResult.difficultyScore;
+          fallbackSteps = logicResult.steps.length;
         }
 
         if (meetsDifficulty) {
-          console.log(`Generated valid puzzle in ${attempts} attempts (logic score: ${logicResult.difficultyScore})`);
+          console.log(`Generated valid puzzle in ${attempts} attempts (logic score: ${logicResult.difficultyScore}, steps: ${logicResult.steps.length})`);
           return new QueensPuzzle(size, regions, solutionGen.firstSolution);
         }
       }
@@ -709,13 +773,14 @@ class PuzzleGenerator {
       // Slightly relax minimum score after many attempts but still keep puzzles non-trivial
       if (attempts === 900 && minScore > targets.minScore - 2) {
         minScore = targets.minScore - 2;
-        console.warn(`Relaxing minimum logic score to ${minScore} after ${attempts} attempts`);
+        minSteps = Math.max(4, minSteps - 2);
+        console.warn(`Relaxing minimum logic score to ${minScore} and min steps to ${minSteps} after ${attempts} attempts`);
       }
     }
 
     // If we couldn't hit the target, return the best puzzle we found that was still logically solvable and unique
     if (fallbackPuzzle) {
-      console.warn("Returning best available puzzle after extended search");
+      console.warn(`Returning best available puzzle after extended search (score ${fallbackScore}, steps ${fallbackSteps})`);
       return fallbackPuzzle;
     }
 
@@ -725,9 +790,9 @@ class PuzzleGenerator {
   static getDifficultyTargets(difficulty) {
     const base = difficulty.size;
     const name = difficulty.name.toLowerCase();
-    if (name === 'easy') return { minScore: base + 2, requireAdvanced: false };
-    if (name === 'medium') return { minScore: base + 6, requireAdvanced: true };
-    return { minScore: base + 10, requireAdvanced: true }; // hard and above
+    if (name === 'easy') return { minScore: base + 2, minSteps: base + 2, requireAdvanced: false };
+    if (name === 'medium') return { minScore: base + 6, minSteps: base + 6, requireAdvanced: true };
+    return { minScore: base + 10, minSteps: base + 8, requireAdvanced: true }; // hard and above
   }
 }
 
