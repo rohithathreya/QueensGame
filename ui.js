@@ -10,6 +10,8 @@ let currentDifficulty = Difficulty.MEDIUM;
 let moveHistory = null;
 let deductionEngine = null;
 let autoHelper = null;
+let generatorWorker = null;
+let isGenerating = false;
 
 // Settings
 let settings = {
@@ -61,19 +63,25 @@ function setupEventListeners() {
 // GAME CONTROL
 // ============================================================================
 
-function startNewGame() {
-    // Generate new puzzle
-    const puzzle = PuzzleGenerator.generate(currentDifficulty);
-    currentGameState = new GameState(puzzle);
-    moveHistory = new MoveHistory();
-    deductionEngine = new DeductionEngine(currentGameState);
-    autoHelper = new AutoHelper(currentGameState);
-    currentHint = null;
+async function startNewGame() {
+    setGeneratingState(true);
+    try {
+        const puzzle = await generatePuzzleAsync(currentDifficulty);
+        currentGameState = new GameState(puzzle);
+        moveHistory = new MoveHistory();
+        deductionEngine = new DeductionEngine(currentGameState);
+        autoHelper = new AutoHelper(currentGameState);
+        currentHint = null;
 
-    // Render
-    renderBoard();
-    updateStats();
-    updateButtons();
+        renderBoard();
+        updateStats();
+        updateButtons();
+    } catch (err) {
+        console.error('Failed to generate puzzle', err);
+        alert('Failed to generate puzzle. Please try again.');
+    } finally {
+        setGeneratingState(false);
+    }
 }
 
 function clearBoard() {
@@ -304,6 +312,11 @@ function updateButtons() {
     // Update undo button state
     const undoBtn = document.getElementById('undo-btn');
     undoBtn.disabled = !moveHistory || !moveHistory.canUndo();
+
+    const newGameBtn = document.getElementById('new-game-btn');
+    if (newGameBtn) newGameBtn.disabled = isGenerating;
+    const hintBtn = document.getElementById('hint-btn');
+    if (hintBtn) hintBtn.disabled = isGenerating;
 }
 
 function updateTimer() {
@@ -318,6 +331,60 @@ function updateTimer() {
     }
 
     requestAnimationFrame(updateTimer);
+}
+
+// ============================================================================
+// ASYNC PUZZLE GENERATION (Web Worker fallback)
+// ============================================================================
+
+function setGeneratingState(flag) {
+    isGenerating = flag;
+    const board = document.getElementById('game-board');
+    if (flag && board) {
+        board.innerHTML = '<div class="loading">Generating…</div>';
+    }
+    updateButtons();
+}
+
+function ensureWorker() {
+    if (generatorWorker || typeof Worker === 'undefined') return generatorWorker;
+    generatorWorker = new Worker('generatorWorker.js');
+    return generatorWorker;
+}
+
+function generatePuzzleAsync(difficulty) {
+    return new Promise((resolve, reject) => {
+        const worker = ensureWorker();
+        if (!worker) {
+            // Fallback to synchronous generation (will still block)
+            try {
+                const puzzle = PuzzleGenerator.generate(difficulty);
+                return resolve(puzzle);
+            } catch (err) {
+                return reject(err);
+            }
+        }
+
+        const handleMessage = (event) => {
+            const data = event.data || {};
+            if (data.status === 'ok') {
+                const p = data.puzzle;
+                resolve(new QueensPuzzle(p.size, p.regions, p.solution));
+            } else {
+                reject(new Error(data.message || 'Worker generation failed'));
+            }
+            worker.removeEventListener('message', handleMessage);
+            worker.removeEventListener('error', handleError);
+        };
+        const handleError = (err) => {
+            reject(err);
+            worker.removeEventListener('message', handleMessage);
+            worker.removeEventListener('error', handleError);
+        };
+        worker.addEventListener('message', handleMessage);
+        worker.addEventListener('error', handleError);
+        worker.postMessage({ difficulty });
+    });
 }
 
 // ============================================================================
