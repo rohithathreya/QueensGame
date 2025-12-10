@@ -135,17 +135,27 @@ async function startNewGame() {
         currentHint = null;
         lastSkillAnalysis = null;
 
-        // Compute optimal path in background (won't block UI)
-        setTimeout(() => {
-            try {
-                const pathFinder = new OptimalPathFinder(puzzle);
-                optimalPath = pathFinder.findOptimalPath();
-                console.log(`Optimal path computed: ${optimalPath.queenPlacements.length} queen placements, cost ${optimalPath.totalCost}`);
-            } catch (e) {
-                console.warn('Failed to compute optimal path:', e);
+        // Compute optimal path using the logical solver (fast, reliable)
+        try {
+            const solver = new LogicalSolver(puzzle.size, puzzle.regions, puzzle.solution);
+            const result = solver.solveLogically();
+            if (result.solved) {
+                const queenSteps = result.steps.filter(s => s.type && s.type.startsWith('PLACE_QUEEN'));
+                optimalPath = {
+                    path: result.steps,
+                    totalCost: result.difficultyScore,
+                    queenPlacements: queenSteps,
+                    optimalSteps: queenSteps.length
+                };
+                console.log(`Optimal path: ${queenSteps.length} queens, cost ${result.difficultyScore}`);
+            } else {
+                console.warn('Solver did not find logical solution');
                 optimalPath = null;
             }
-        }, 100);
+        } catch (e) {
+            console.warn('Failed to compute optimal path:', e);
+            optimalPath = null;
+        }
 
         renderBoard();
         updateStats();
@@ -661,10 +671,50 @@ function handleWin() {
     lastCompletionMillis = currentGameState.getElapsedTime();
 
     // Run skill analysis
-    if (optimalPath && moveHistory) {
+    if (moveHistory) {
         try {
-            const analyzer = new SkillAnalyzer(currentGameState.puzzle, optimalPath);
-            lastSkillAnalysis = analyzer.analyze(moveHistory.getTimedMoves(), lastCompletionMillis);
+            if (optimalPath) {
+                const analyzer = new SkillAnalyzer(currentGameState.puzzle, optimalPath);
+                lastSkillAnalysis = analyzer.analyze(moveHistory.getTimedMoves(), lastCompletionMillis);
+            } else {
+                // Fallback: basic stats without optimal comparison
+                const timedMoves = moveHistory.getTimedMoves();
+                const undoCount = timedMoves.filter(m => m.isUndo).length;
+                const markerPlacements = timedMoves.filter(m => m.newState === CellState.MARKER && !m.isUndo).length;
+                const queenPlacements = currentGameState.puzzle.size;
+                
+                // Simple score based on time and efficiency
+                const expectedTimeMs = currentGameState.puzzle.size * 5000;
+                const timeFactor = Math.min(1.5, Math.max(0.5, expectedTimeMs / Math.max(lastCompletionMillis, 1000)));
+                const undoPenalty = Math.max(0, 1 - (undoCount * 0.05));
+                const rawScore = 100 * timeFactor * undoPenalty * 0.7; // 0.7 base since no optimal comparison
+                const score = Math.round(Math.max(0, Math.min(100, rawScore)));
+                
+                const tier = score >= 85 ? { name: 'Expert', emoji: '🏆', color: '#C0C0C0' }
+                    : score >= 70 ? { name: 'Advanced', emoji: '⭐', color: '#CD7F32' }
+                    : score >= 50 ? { name: 'Intermediate', emoji: '📈', color: '#4CAF50' }
+                    : score >= 30 ? { name: 'Beginner', emoji: '🌱', color: '#2196F3' }
+                    : { name: 'Novice', emoji: '🎯', color: '#9E9E9E' };
+                
+                lastSkillAnalysis = {
+                    score,
+                    tier,
+                    efficiency: Math.round(undoPenalty * 100),
+                    timeFactor: Math.round(timeFactor * 100),
+                    orderSimilarity: null, // N/A without optimal
+                    totalTimeMs: lastCompletionMillis,
+                    totalMoves: timedMoves.length,
+                    queenPlacements,
+                    markerPlacements,
+                    undoCount,
+                    redoCount: timedMoves.filter(m => m.isRedo).length,
+                    detourCount: 0,
+                    optimalCost: null,
+                    optimalSteps: null,
+                    userEffectiveCost: null,
+                    noOptimalPath: true
+                };
+            }
             console.log('Skill analysis:', lastSkillAnalysis);
         } catch (e) {
             console.warn('Failed to analyze skill:', e);
@@ -708,25 +758,36 @@ function updateSkillAnalysisDisplay() {
     if (!container) return;
 
     if (!lastSkillAnalysis) {
-        container.innerHTML = '<p class="analysis-pending">Analyzing...</p>';
+        container.innerHTML = '<p class="analysis-pending">Analysis unavailable</p>';
         return;
     }
 
     const a = lastSkillAnalysis;
     const tier = a.tier;
 
-    container.innerHTML = `
-        <div class="skill-score-container">
-            <div class="skill-score" style="color: ${tier.color}">
-                <span class="score-value">${a.score}</span>
-                <span class="score-label">SKILL SCORE</span>
-            </div>
-            <div class="skill-tier" style="background: ${tier.color}20; border-color: ${tier.color}">
-                <span class="tier-emoji">${tier.emoji}</span>
-                <span class="tier-name">${tier.name}</span>
+    // Build breakdown section (handle missing optimal data)
+    const breakdownHtml = a.noOptimalPath ? `
+        <div class="analysis-breakdown">
+            <h4>Performance Breakdown</h4>
+            <div class="breakdown-grid">
+                <div class="breakdown-item">
+                    <span class="breakdown-value">${a.efficiency}%</span>
+                    <span class="breakdown-label">Efficiency</span>
+                    <span class="breakdown-desc">move accuracy</span>
+                </div>
+                <div class="breakdown-item">
+                    <span class="breakdown-value">${a.timeFactor}%</span>
+                    <span class="breakdown-label">Speed</span>
+                    <span class="breakdown-desc">vs expected time</span>
+                </div>
+                <div class="breakdown-item">
+                    <span class="breakdown-value">${a.totalMoves}</span>
+                    <span class="breakdown-label">Moves</span>
+                    <span class="breakdown-desc">total actions</span>
+                </div>
             </div>
         </div>
-
+    ` : `
         <div class="analysis-breakdown">
             <h4>Performance Breakdown</h4>
             <div class="breakdown-grid">
@@ -747,6 +808,42 @@ function updateSkillAnalysisDisplay() {
                 </div>
             </div>
         </div>
+    `;
+
+    // Build comparison section (only if optimal data available)
+    const comparisonHtml = a.noOptimalPath ? '' : `
+        <div class="optimal-comparison">
+            <h4>vs Optimal Solution</h4>
+            <div class="comparison-bar">
+                <div class="bar-label">Your Cost</div>
+                <div class="bar-container">
+                    <div class="bar-fill bar-user" style="width: ${Math.min(100, (a.userEffectiveCost / Math.max(a.optimalCost, 1)) * 50)}%"></div>
+                </div>
+                <span class="bar-value">${a.userEffectiveCost}</span>
+            </div>
+            <div class="comparison-bar">
+                <div class="bar-label">Optimal Cost</div>
+                <div class="bar-container">
+                    <div class="bar-fill bar-optimal" style="width: 50%"></div>
+                </div>
+                <span class="bar-value">${a.optimalCost}</span>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = `
+        <div class="skill-score-container">
+            <div class="skill-score" style="color: ${tier.color}">
+                <span class="score-value">${a.score}</span>
+                <span class="score-label">SKILL SCORE</span>
+            </div>
+            <div class="skill-tier" style="background: ${tier.color}20; border-color: ${tier.color}">
+                <span class="tier-emoji">${tier.emoji}</span>
+                <span class="tier-name">${tier.name}</span>
+            </div>
+        </div>
+
+        ${breakdownHtml}
 
         <div class="analysis-stats">
             <div class="stat-row">
@@ -765,29 +862,15 @@ function updateSkillAnalysisDisplay() {
                 <span class="stat-label">Undos</span>
                 <span class="stat-value">${a.undoCount}</span>
             </div>
+            ${!a.noOptimalPath ? `
             <div class="stat-row ${a.detourCount > 0 ? 'stat-penalty' : ''}">
                 <span class="stat-label">Detours</span>
                 <span class="stat-value">${a.detourCount}</span>
             </div>
+            ` : ''}
         </div>
 
-        <div class="optimal-comparison">
-            <h4>vs Optimal Solution</h4>
-            <div class="comparison-bar">
-                <div class="bar-label">Your Cost</div>
-                <div class="bar-container">
-                    <div class="bar-fill bar-user" style="width: ${Math.min(100, (a.userEffectiveCost / Math.max(a.optimalCost, 1)) * 50)}%"></div>
-                </div>
-                <span class="bar-value">${a.userEffectiveCost}</span>
-            </div>
-            <div class="comparison-bar">
-                <div class="bar-label">Optimal Cost</div>
-                <div class="bar-container">
-                    <div class="bar-fill bar-optimal" style="width: 50%"></div>
-                </div>
-                <span class="bar-value">${a.optimalCost}</span>
-            </div>
-        </div>
+        ${comparisonHtml}
     `;
 }
 
