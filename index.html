@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description"
+    content="LinkedIn Queens - A logic puzzle where you place queens following row, column, region, and adjacency rules.">
+  <meta name="keywords" content="puzzle, queens, logic, game, LinkedIn, brain teaser">
+  <meta name="author" content="Queens Game">
+
+  <title>LinkedIn Queens - Logic Puzzle</title>
+
+  <!-- Favicon -->
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>♛</text></svg>">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <h1>♛ LinkedIn Queens</h1>
+      <p class="subtitle">Place one queen in each row, column, and region. No adjacent queens!</p>
+    </header>
+
+    <!-- Controls -->
+    <div class="controls">
+      <div class="controls-left">
+        <select id="difficulty-select">
+          <option value="easy">Easy (6×6)</option>
+          <option value="medium" selected>Medium (7×7)</option>
+          <option value="hard">Hard (8×8)</option>
+        </select>
+
+        <button id="new-game-btn" class="btn-primary">
+          New Puzzle
+        </button>
+
+        <button id="clear-btn">
+          Clear
+        </button>
+
+        <button id="undo-btn">
+          Undo
+        </button>
+      </div>
+
+      <div class="controls-right">
+        <div class="stat">
+          <span class="stat-icon">♛</span>
+          <span class="stat-value" id="queen-count">0/7</span>
+        </div>
+
+        <div class="stat">
+          <span class="stat-icon">⏱️</span>
+          <span class="stat-value" id="timer">00:00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Panel -->
+    <div class="settings-panel">
+      <h3>Settings</h3>
+      <div class="setting-item">
+        <label class="toggle-label">
+          <input type="checkbox" id="auto-x-toggle" checked>
+          <span class="toggle-text">Auto-X placement</span>
+        </label>
+        <p class="setting-description">Automatically mark impossible cells when placing a queen</p>
+      </div>
+
+      <div class="setting-item">
+        <label class="toggle-label">
+          <input type="checkbox" id="auto-check-toggle" checked>
+          <span class="toggle-text">Auto-check violations</span>
+        </label>
+        <p class="setting-description">Highlight rule violations in real-time</p>
+      </div>
+
+      <div class="setting-item">
+        <button id="hint-btn" class="btn-hint">
+          💡 Get Hint
+        </button>
+        <p id="hint-message" class="hint-message" style="display: none;"></p>
+      </div>
+    </div>
+
+    <!-- Game Board -->
+    <div class="board-container">
+      <div id="game-board" class="board">
+        <!-- Cells generated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Win Overlay -->
+  <div id="win-overlay" class="win-overlay">
+    <div class="win-card">
+      <div class="win-icon">🎉</div>
+      <h2>Puzzle Solved!</h2>
+      <p class="subtitle">Congratulations on your victory!</p>
+
+      <div class="win-stats">
+        <div class="win-stat">
+          <span class="win-stat-value" id="win-time">00:00</span>
+          <span class="win-stat-label">Time</span>
+        </div>
+
+        <div class="win-stat">
+          <span class="win-stat-value" id="win-difficulty">Medium</span>
+          <span class="win-stat-label">Difficulty</span>
+        </div>
+
+        <div class="win-stat">
+          <span class="win-stat-value" id="win-size">7×7</span>
+          <span class="win-stat-label">Board Size</span>
+        </div>
+      </div>
+
+      <button id="play-again-btn" class="btn-primary">
+        Play Again
+      </button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="game.js"></script>
+  <script src="ui.js"></script>
+</body>
+
+</html>
