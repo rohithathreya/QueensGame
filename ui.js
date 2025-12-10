@@ -15,6 +15,7 @@ let isGenerating = false;
 let generatingOverlay = null;
 let sharedPuzzleOverride = null;
 let lastCompletionMillis = null;
+let lastPreviewDataUrl = null;
 
 // Settings
 let settings = {
@@ -404,23 +405,26 @@ function generatePuzzleAsync(difficulty) {
 
 function encodePuzzle(puzzle) {
     const payload = {
-        size: puzzle.size,
-        regions: puzzle.regions,
-        solution: puzzle.solution
+        s: puzzle.size,
+        r: puzzle.regions,
+        sol: puzzle.solution
     };
     const json = JSON.stringify(payload);
-    return btoa(unescape(encodeURIComponent(json)));
+    const base64 = btoa(unescape(encodeURIComponent(json)));
+    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function decodePuzzle(code) {
-    const json = decodeURIComponent(escape(atob(code)));
+    const base64 = code.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const json = decodeURIComponent(escape(atob(padded)));
     const data = JSON.parse(json);
-    return new QueensPuzzle(data.size, data.regions, data.solution);
+    return new QueensPuzzle(data.s, data.r, data.sol);
 }
 
 function tryLoadSharedPuzzleFromUrl() {
     const params = new URLSearchParams(window.location.search);
-    const code = params.get('puzzle');
+    const code = params.get('p');
     if (!code) return;
     try {
         const puzzle = decodePuzzle(code);
@@ -440,7 +444,7 @@ function tryLoadSharedPuzzleFromUrl() {
 function buildShareLink(elapsedMillis) {
     const code = encodePuzzle(currentGameState.puzzle);
     const seconds = Math.floor(elapsedMillis / 1000);
-    const url = `${window.location.origin}${window.location.pathname}?puzzle=${encodeURIComponent(code)}&time=${seconds}`;
+    const url = `${window.location.origin}${window.location.pathname}?p=${encodeURIComponent(code)}&t=${seconds}`;
     return url;
 }
 
@@ -450,6 +454,7 @@ function updateChallengePreview() {
     if (!preview || !text || !currentGameState) return;
 
     const url = renderPuzzlePreview(currentGameState.puzzle);
+    lastPreviewDataUrl = url;
     preview.src = url;
     const elapsed = lastCompletionMillis || currentGameState.getElapsedTime();
     const seconds = Math.floor(elapsed / 1000);
@@ -481,6 +486,12 @@ function renderPuzzlePreview(puzzle) {
     return canvas.toDataURL('image/png');
 }
 
+async function getPreviewBlob() {
+    if (!lastPreviewDataUrl) return null;
+    const res = await fetch(lastPreviewDataUrl);
+    return await res.blob();
+}
+
 document.addEventListener('click', (e) => {
     if (e.target && e.target.id === 'challenge-btn') {
         handleChallengeShare();
@@ -496,12 +507,34 @@ function handleChallengeShare() {
         text: message,
         url: link
     };
+
+    const tryShareWithImage = async () => {
+        try {
+            const blob = await getPreviewBlob();
+            if (!blob) return false;
+            const file = new File([blob], 'puzzle.png', { type: 'image/png' });
+            const data = { ...shareData, files: [file] };
+            if (navigator.canShare && navigator.canShare(data)) {
+                await navigator.share(data);
+                return true;
+            }
+            return false;
+        } catch (err) {
+            return false;
+        }
+    };
+
     if (navigator.share) {
-        navigator.share(shareData).catch(() => {
-            copyToClipboard(link);
+        tryShareWithImage().then((usedImage) => {
+            if (usedImage) return;
+            navigator.share(shareData).catch(() => {
+                copyToClipboard(link);
+                openPreviewIfPossible();
+            });
         });
     } else {
         copyToClipboard(link);
+        openPreviewIfPossible();
         alert('Link copied! Send it to your friend.');
     }
 }
@@ -517,6 +550,16 @@ function copyToClipboard(text) {
         document.execCommand('copy');
         document.body.removeChild(temp);
     }
+}
+
+function openPreviewIfPossible() {
+    if (!lastPreviewDataUrl) return;
+    try {
+        const w = window.open();
+        if (w) {
+            w.document.write(`<img src="${lastPreviewDataUrl}" style="width:100%;height:auto;filter:blur(6px);" />`);
+        }
+    } catch (_) { }
 }
 // ============================================================================
 // WIN HANDLING
