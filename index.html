@@ -62,21 +62,58 @@
       </div>
     </div>
 
-    <!-- Settings Panel -->
-    <div class="settings-panel">
-      <h3>Tools</h3>
-      <div class="setting-item">
-        <button id="hint-btn" class="btn-hint">
-          💡 Get Hint
-        </button>
-        <p id="hint-message" class="hint-message" style="display: none;"></p>
+    <!-- Coach Dashboard -->
+    <div class="coach-dashboard">
+      <div class="coach-header">
+        <span class="coach-icon">🏆</span>
+        <span class="coach-title">Coach Mode</span>
+        <span id="skill-level" class="skill-badge">Skill: --</span>
       </div>
+      
+      <div class="coach-stats">
+        <div class="coach-stat">
+          <span class="coach-stat-value" id="streak-count">0</span>
+          <span class="coach-stat-label">Day Streak</span>
+        </div>
+        <div class="coach-stat">
+          <span class="coach-stat-value" id="puzzles-solved">0</span>
+          <span class="coach-stat-label">Puzzles</span>
+        </div>
+        <div class="coach-stat">
+          <span class="coach-stat-value" id="trend-indicator">-</span>
+          <span class="coach-stat-label">Trend</span>
+        </div>
+      </div>
+
+      <div class="tools-row">
+        <button id="hint-btn" class="btn-hint">💡 Hint</button>
+        <button id="stats-btn" class="btn-stats">📊 Stats</button>
+      </div>
+      <p id="hint-message" class="hint-message" style="display: none;"></p>
+    </div>
+
+    <!-- Real-time Coach Feedback -->
+    <div id="coach-feedback" class="coach-feedback" style="display: none;">
+      <div class="feedback-content">
+        <span class="feedback-icon"></span>
+        <span class="feedback-message"></span>
+      </div>
+      <div class="feedback-detail"></div>
     </div>
 
     <!-- Game Board -->
     <div class="board-container">
       <div id="game-board" class="board">
         <!-- Cells generated dynamically -->
+      </div>
+    </div>
+
+    <!-- Stats Modal -->
+    <div id="stats-modal" class="modal" style="display: none;">
+      <div class="modal-content stats-content">
+        <button class="modal-close" id="stats-close">&times;</button>
+        <h2>📊 Your Progress</h2>
+        <div id="stats-body"></div>
       </div>
     </div>
   </div>
@@ -128,6 +165,7 @@
 
   <!-- Scripts -->
   <script src="game.js"></script>
+  <script src="coach.js"></script>
   <script src="ui.js"></script>
 </body>
 

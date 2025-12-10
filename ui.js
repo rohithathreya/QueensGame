@@ -18,6 +18,8 @@ let lastCompletionMillis = null;
 let lastPreviewDataUrl = null;
 let optimalPath = null;
 let lastSkillAnalysis = null;
+let currentCoach = null;
+let feedbackTimeout = null;
 // Default OG worker base (can be overridden by window.WORKER_OG_BASE if needed)
 const DEFAULT_OG_WORKER_BASE = 'https://queens-og.rohithmathreya.workers.dev';
 const OG_WORKER_BASE = typeof window !== 'undefined'
@@ -96,6 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     ensureGeneratingOverlay();
     tryLoadSharedPuzzleFromUrl();
+    updateCoachDashboard();
     startNewGame();
     updateTimer();
 });
@@ -110,6 +113,26 @@ function setupEventListeners() {
     document.getElementById('clear-btn').addEventListener('click', clearBoard);
     document.getElementById('undo-btn').addEventListener('click', undoMove);
     document.getElementById('hint-btn').addEventListener('click', showHint);
+
+    // Stats button
+    const statsBtn = document.getElementById('stats-btn');
+    if (statsBtn) {
+        statsBtn.addEventListener('click', showStatsModal);
+    }
+
+    // Stats modal close
+    const statsClose = document.getElementById('stats-close');
+    if (statsClose) {
+        statsClose.addEventListener('click', hideStatsModal);
+    }
+
+    // Close modal on backdrop click
+    const statsModal = document.getElementById('stats-modal');
+    if (statsModal) {
+        statsModal.addEventListener('click', (e) => {
+            if (e.target === statsModal) hideStatsModal();
+        });
+    }
 
     document.getElementById('play-again-btn').addEventListener('click', () => {
         hideWinOverlay();
@@ -134,6 +157,10 @@ async function startNewGame() {
         autoHelper = new AutoHelper(currentGameState);
         currentHint = null;
         lastSkillAnalysis = null;
+
+        // Initialize coach
+        currentCoach = initializeCoach(puzzle);
+        hideCoachFeedback();
 
         // Compute optimal path using the logical solver (fast, reliable)
         try {
@@ -160,6 +187,7 @@ async function startNewGame() {
         renderBoard();
         updateStats();
         updateButtons();
+        updateCoachDashboard();
     } catch (err) {
         console.error('Failed to generate puzzle', err);
         alert('Failed to generate puzzle. Please try again.');
@@ -197,11 +225,36 @@ function undoMove() {
 function showHint() {
     if (!deductionEngine) return;
 
-    currentHint = deductionEngine.getHint();
+    // Try coach hint first for better pattern detection
+    let hintMessage = '';
+    if (currentCoach) {
+        const coachHint = currentCoach.getCoachingHint();
+        if (coachHint.pattern && coachHint.location) {
+            currentHint = {
+                row: coachHint.location.row,
+                col: coachHint.location.col,
+                message: `Look for a ${coachHint.patternName}`
+            };
+            
+            // Add a tip if available
+            if (coachHint.tips && coachHint.tips.length > 0) {
+                hintMessage = `${currentHint.message}\n💡 ${coachHint.tips[0]}`;
+            } else {
+                hintMessage = currentHint.message;
+            }
+        } else {
+            // Fallback to deduction engine
+            currentHint = deductionEngine.getHint();
+            hintMessage = currentHint.message;
+        }
+    } else {
+        currentHint = deductionEngine.getHint();
+        hintMessage = currentHint.message;
+    }
 
     // Show hint message
     const hintMsg = document.getElementById('hint-message');
-    hintMsg.textContent = currentHint.message;
+    hintMsg.textContent = hintMessage;
     hintMsg.style.display = 'block';
 
     // Highlight hint cell if applicable
@@ -344,6 +397,14 @@ function handleCellClick(row, col) {
 
     // Record move for undo
     moveHistory.recordMove(row, col, oldState, newState);
+
+    // Get coach feedback
+    if (currentCoach) {
+        const feedback = currentCoach.onMove(row, col, newState, oldState);
+        if (feedback) {
+            showCoachFeedback(feedback);
+        }
+    }
 
     // Apply auto-X if enabled and queen was placed
     if (settings.autoX && newState === CellState.QUEEN) {
@@ -662,6 +723,216 @@ function openPreviewIfPossible() {
         }
     } catch (_) { }
 }
+
+// ============================================================================
+// COACH UI FUNCTIONS
+// ============================================================================
+
+function showCoachFeedback(feedback) {
+    if (!feedback || feedback.type === 'marker') return; // Only show for queen placements
+
+    const container = document.getElementById('coach-feedback');
+    if (!container) return;
+
+    // Clear any pending hide
+    if (feedbackTimeout) {
+        clearTimeout(feedbackTimeout);
+    }
+
+    // Set quality class
+    container.className = 'coach-feedback ' + (feedback.quality || 'neutral');
+
+    // Update content
+    container.querySelector('.feedback-message').textContent = feedback.message || '';
+    container.querySelector('.feedback-detail').textContent = feedback.details || '';
+
+    // Show
+    container.style.display = 'block';
+
+    // Auto-hide after delay
+    feedbackTimeout = setTimeout(() => {
+        hideCoachFeedback();
+    }, feedback.quality === 'excellent' ? 3000 : 2000);
+}
+
+function hideCoachFeedback() {
+    const container = document.getElementById('coach-feedback');
+    if (container) {
+        container.style.opacity = '0';
+        container.style.transform = 'translateX(-50%) scale(0.9)';
+        setTimeout(() => {
+            container.style.display = 'none';
+            container.style.opacity = '';
+            container.style.transform = '';
+        }, 200);
+    }
+}
+
+function updateCoachDashboard() {
+    const profiler = getProfiler();
+    if (!profiler) return;
+
+    const stats = profiler.getStats();
+
+    // Update skill level
+    const skillLevel = document.getElementById('skill-level');
+    if (skillLevel) {
+        skillLevel.textContent = `Skill: ${stats.overallSkill}`;
+    }
+
+    // Update streak
+    const streakCount = document.getElementById('streak-count');
+    if (streakCount) {
+        streakCount.textContent = stats.streakDays;
+    }
+
+    // Update puzzles solved
+    const puzzlesSolved = document.getElementById('puzzles-solved');
+    if (puzzlesSolved) {
+        puzzlesSolved.textContent = stats.totalPuzzlesSolved;
+    }
+
+    // Update trend indicator
+    const trendIndicator = document.getElementById('trend-indicator');
+    if (trendIndicator) {
+        const trend = stats.improvementTrend;
+        if (trend.trend === 'improving') {
+            trendIndicator.textContent = `↑ +${trend.change}`;
+            trendIndicator.style.color = '#4CAF50';
+        } else if (trend.trend === 'declining') {
+            trendIndicator.textContent = `↓ ${trend.change}`;
+            trendIndicator.style.color = '#f44336';
+        } else {
+            trendIndicator.textContent = '→ stable';
+            trendIndicator.style.color = 'inherit';
+        }
+    }
+}
+
+function showStatsModal() {
+    const modal = document.getElementById('stats-modal');
+    const body = document.getElementById('stats-body');
+    if (!modal || !body) return;
+
+    const profiler = getProfiler();
+    const stats = profiler.getStats();
+
+    // Build stats HTML
+    let html = `
+        <div class="stats-overview">
+            <div class="stats-section">
+                <h3>Overall Progress</h3>
+                <div class="breakdown-grid">
+                    <div class="breakdown-item">
+                        <span class="breakdown-value">${stats.overallSkill}</span>
+                        <span class="breakdown-label">Skill Level</span>
+                    </div>
+                    <div class="breakdown-item">
+                        <span class="breakdown-value">${stats.totalPuzzlesSolved}</span>
+                        <span class="breakdown-label">Puzzles Solved</span>
+                    </div>
+                    <div class="breakdown-item">
+                        <span class="breakdown-value">${stats.streakDays}</span>
+                        <span class="breakdown-label">Day Streak</span>
+                    </div>
+                </div>
+            </div>
+    `;
+
+    // Pattern proficiency
+    if (stats.strongestPatterns.length > 0 || stats.weakestPatterns.length > 0) {
+        html += `
+            <div class="stats-section">
+                <h3>Pattern Mastery</h3>
+                <div class="pattern-list">
+        `;
+
+        // Show all patterns with proficiency
+        const allPatterns = Object.values(PatternType);
+        for (const pattern of allPatterns) {
+            const info = PatternInfo[pattern];
+            if (!info) continue;
+
+            const proficiency = profiler.getPatternProficiency(pattern);
+            const patternData = profiler.data.patterns[pattern];
+            const encountered = patternData?.timesEncountered || 0;
+
+            if (encountered === 0) continue; // Skip patterns never encountered
+
+            let color = '#9E9E9E';
+            if (proficiency >= 80) color = '#FFD700';
+            else if (proficiency >= 60) color = '#4CAF50';
+            else if (proficiency >= 40) color = '#FF9500';
+            else color = '#f44336';
+
+            html += `
+                <div class="pattern-item">
+                    <span class="pattern-name">${info.name}</span>
+                    <div class="pattern-bar">
+                        <div class="pattern-bar-fill" style="width: ${proficiency}%; background: ${color};"></div>
+                    </div>
+                    <span class="pattern-score" style="color: ${color}">${proficiency}%</span>
+                </div>
+            `;
+        }
+
+        html += `
+                </div>
+            </div>
+        `;
+    }
+
+    // Recommendations
+    const weakest = stats.weakestPatterns;
+    if (weakest.length > 0) {
+        html += `
+            <div class="stats-section">
+                <h3>Focus Areas</h3>
+        `;
+
+        for (const weak of weakest) {
+            const info = PatternInfo[weak.pattern];
+            if (!info) continue;
+
+            const priority = weak.proficiency < 40 ? 'high' : 'medium';
+            html += `
+                <div class="recommendation-card ${priority}">
+                    <div class="recommendation-title">${info.name}</div>
+                    <div class="recommendation-desc">Proficiency: ${weak.proficiency}%</div>
+                    <div class="recommendation-action">${info.tips?.[0] || 'Practice this pattern'}</div>
+                </div>
+            `;
+        }
+
+        html += `</div>`;
+    }
+
+    // Format time
+    const totalMinutes = Math.floor(stats.totalTimePlayed / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    const timeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+    html += `
+        <div class="stats-section">
+            <h3>Time Investment</h3>
+            <p style="color: var(--text-secondary); text-align: center; font-size: 1.5rem; font-weight: bold;">${timeStr}</p>
+        </div>
+    `;
+
+    html += `</div>`;
+
+    body.innerHTML = html;
+    modal.style.display = 'flex';
+}
+
+function hideStatsModal() {
+    const modal = document.getElementById('stats-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
 // ============================================================================
 // WIN HANDLING
 // ============================================================================
@@ -670,24 +941,66 @@ function handleWin() {
     currentGameState.endTimeMillis = Date.now();
     lastCompletionMillis = currentGameState.getElapsedTime();
 
+    // Get coach summary and record session
+    let coachSummary = null;
+    if (currentCoach) {
+        coachSummary = currentCoach.getSummary();
+    }
+
     // Run skill analysis
     if (moveHistory) {
         try {
             if (optimalPath) {
                 const analyzer = new SkillAnalyzer(currentGameState.puzzle, optimalPath);
                 lastSkillAnalysis = analyzer.analyze(moveHistory.getTimedMoves(), lastCompletionMillis);
+            } else if (coachSummary) {
+                // Use coach summary for analysis
+                const optimalRate = coachSummary.queenPlacements > 0 
+                    ? (coachSummary.optimalMoves / coachSummary.queenPlacements) 
+                    : 0;
+                
+                const expectedTimeMs = currentGameState.puzzle.size * 5000;
+                const timeFactor = Math.min(1.5, Math.max(0.5, expectedTimeMs / Math.max(lastCompletionMillis, 1000)));
+                
+                const rawScore = 100 * optimalRate * 0.6 + 100 * (timeFactor / 1.5) * 0.4;
+                const score = Math.round(Math.max(0, Math.min(100, rawScore)));
+                
+                const tier = score >= 90 ? { name: 'Champion', emoji: '🏆', color: '#FFD700' }
+                    : score >= 75 ? { name: 'Expert', emoji: '⭐', color: '#C0C0C0' }
+                    : score >= 60 ? { name: 'Advanced', emoji: '📈', color: '#CD7F32' }
+                    : score >= 40 ? { name: 'Intermediate', emoji: '🌱', color: '#4CAF50' }
+                    : { name: 'Beginner', emoji: '🎯', color: '#2196F3' };
+                
+                lastSkillAnalysis = {
+                    score,
+                    tier,
+                    efficiency: Math.round(optimalRate * 100),
+                    timeFactor: Math.round(timeFactor * 100),
+                    orderSimilarity: null,
+                    totalTimeMs: lastCompletionMillis,
+                    totalMoves: coachSummary.totalMoves,
+                    queenPlacements: coachSummary.queenPlacements,
+                    markerPlacements: coachSummary.totalMoves - coachSummary.queenPlacements,
+                    undoCount: 0,
+                    redoCount: 0,
+                    detourCount: coachSummary.suboptimalMoves,
+                    guessCount: coachSummary.guesses,
+                    optimalMoves: coachSummary.optimalMoves,
+                    patternBreakdown: coachSummary.patternBreakdown,
+                    noOptimalPath: true,
+                    coachAnalysis: true
+                };
             } else {
-                // Fallback: basic stats without optimal comparison
+                // Basic fallback
                 const timedMoves = moveHistory.getTimedMoves();
                 const undoCount = timedMoves.filter(m => m.isUndo).length;
                 const markerPlacements = timedMoves.filter(m => m.newState === CellState.MARKER && !m.isUndo).length;
                 const queenPlacements = currentGameState.puzzle.size;
                 
-                // Simple score based on time and efficiency
                 const expectedTimeMs = currentGameState.puzzle.size * 5000;
                 const timeFactor = Math.min(1.5, Math.max(0.5, expectedTimeMs / Math.max(lastCompletionMillis, 1000)));
                 const undoPenalty = Math.max(0, 1 - (undoCount * 0.05));
-                const rawScore = 100 * timeFactor * undoPenalty * 0.7; // 0.7 base since no optimal comparison
+                const rawScore = 100 * timeFactor * undoPenalty * 0.7;
                 const score = Math.round(Math.max(0, Math.min(100, rawScore)));
                 
                 const tier = score >= 85 ? { name: 'Expert', emoji: '🏆', color: '#C0C0C0' }
@@ -701,7 +1014,7 @@ function handleWin() {
                     tier,
                     efficiency: Math.round(undoPenalty * 100),
                     timeFactor: Math.round(timeFactor * 100),
-                    orderSimilarity: null, // N/A without optimal
+                    orderSimilarity: null,
                     totalTimeMs: lastCompletionMillis,
                     totalMoves: timedMoves.length,
                     queenPlacements,
@@ -721,6 +1034,26 @@ function handleWin() {
             lastSkillAnalysis = null;
         }
     }
+
+    // Record session with profiler
+    try {
+        const profiler = getProfiler();
+        if (profiler && lastSkillAnalysis) {
+            profiler.recordSession({
+                difficulty: currentDifficulty.name,
+                size: currentGameState.puzzle.size,
+                timeMs: lastCompletionMillis,
+                score: lastSkillAnalysis.score,
+                optimalMoves: lastSkillAnalysis.optimalMoves || 0,
+                guessCount: lastSkillAnalysis.guessCount || 0
+            });
+        }
+    } catch (e) {
+        console.warn('Failed to record session:', e);
+    }
+
+    // Update coach dashboard
+    updateCoachDashboard();
 
     // Show win overlay
     showWinOverlay();
@@ -831,6 +1164,55 @@ function updateSkillAnalysisDisplay() {
         </div>
     `;
 
+    // Build pattern breakdown if available (from coach)
+    let patternHtml = '';
+    if (a.patternBreakdown && Object.keys(a.patternBreakdown).length > 0) {
+        patternHtml = `
+            <div class="analysis-breakdown" style="margin-top: var(--spacing-md);">
+                <h4>Patterns Used</h4>
+                <div class="pattern-list" style="max-height: 150px; overflow-y: auto;">
+        `;
+        for (const [pattern, count] of Object.entries(a.patternBreakdown)) {
+            const info = typeof PatternInfo !== 'undefined' ? PatternInfo[pattern] : null;
+            const name = info?.name || pattern.replace(/_/g, ' ').toLowerCase();
+            patternHtml += `
+                <div class="pattern-item" style="padding: 6px;">
+                    <span class="pattern-name" style="font-size: 0.85rem;">${name}</span>
+                    <span class="pattern-score" style="font-weight: bold;">${count}×</span>
+                </div>
+            `;
+        }
+        patternHtml += `
+                </div>
+            </div>
+        `;
+    }
+
+    // Build coach feedback summary
+    let coachFeedback = '';
+    if (a.coachAnalysis) {
+        const optimalCount = a.optimalMoves || 0;
+        const guessCount = a.guessCount || 0;
+        const detourCount = a.detourCount || 0;
+        
+        if (optimalCount === a.queenPlacements && guessCount === 0) {
+            coachFeedback = `<div class="coach-verdict" style="margin-top: var(--spacing-md); padding: var(--spacing-sm); background: rgba(76, 175, 80, 0.2); border-radius: var(--radius-sm); text-align: center;">
+                <strong style="color: #4CAF50;">🎯 Perfect Play!</strong>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 4px 0 0 0;">Every move was optimal</p>
+            </div>`;
+        } else if (guessCount > 0) {
+            coachFeedback = `<div class="coach-verdict" style="margin-top: var(--spacing-md); padding: var(--spacing-sm); background: rgba(255, 149, 0, 0.2); border-radius: var(--radius-sm); text-align: center;">
+                <strong style="color: #FF9500;">🎲 ${guessCount} Guess${guessCount > 1 ? 'es' : ''}</strong>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 4px 0 0 0;">Try to solve without guessing</p>
+            </div>`;
+        } else if (detourCount > 0) {
+            coachFeedback = `<div class="coach-verdict" style="margin-top: var(--spacing-md); padding: var(--spacing-sm); background: rgba(100, 100, 255, 0.2); border-radius: var(--radius-sm); text-align: center;">
+                <strong style="color: #6464FF;">↪ ${detourCount} Detour${detourCount > 1 ? 's' : ''}</strong>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 4px 0 0 0;">Simpler patterns were available</p>
+            </div>`;
+        }
+    }
+
     container.innerHTML = `
         <div class="skill-score-container">
             <div class="skill-score" style="color: ${tier.color}">
@@ -843,7 +1225,11 @@ function updateSkillAnalysisDisplay() {
             </div>
         </div>
 
+        ${coachFeedback}
+
         ${breakdownHtml}
+
+        ${patternHtml}
 
         <div class="analysis-stats">
             <div class="stat-row">
@@ -854,10 +1240,17 @@ function updateSkillAnalysisDisplay() {
                 <span class="stat-label">Queens Placed</span>
                 <span class="stat-value">${a.queenPlacements}</span>
             </div>
+            ${a.coachAnalysis ? `
+            <div class="stat-row ${(a.optimalMoves || 0) === a.queenPlacements ? '' : 'stat-penalty'}">
+                <span class="stat-label">Optimal Moves</span>
+                <span class="stat-value">${a.optimalMoves || 0}/${a.queenPlacements}</span>
+            </div>
+            ` : `
             <div class="stat-row">
                 <span class="stat-label">Markers Used</span>
                 <span class="stat-value">${a.markerPlacements}</span>
             </div>
+            `}
             <div class="stat-row ${a.undoCount > 0 ? 'stat-penalty' : ''}">
                 <span class="stat-label">Undos</span>
                 <span class="stat-value">${a.undoCount}</span>

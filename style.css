@@ -778,6 +778,325 @@ select {
 }
 
 /* ============================================================================
+   COACH DASHBOARD
+   ============================================================================ */
+
+.coach-dashboard {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 140, 0, 0.05));
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  animation: fadeInUp 0.6s ease 0.3s backwards;
+}
+
+.coach-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.coach-icon {
+  font-size: 1.5rem;
+}
+
+.coach-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.skill-badge {
+  background: linear-gradient(135deg, #FFD700, #FFA500);
+  color: #1a1a1a;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.coach-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.coach-stat {
+  text-align: center;
+  background: var(--glass-bg);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-sm);
+}
+
+.coach-stat-value {
+  display: block;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: #FFD700;
+}
+
+.coach-stat-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.tools-row {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.tools-row button {
+  flex: 1;
+}
+
+.btn-stats {
+  background: linear-gradient(135deg, hsl(200, 85%, 55%), hsl(220, 85%, 55%));
+  color: white;
+  border: none;
+}
+
+/* ============================================================================
+   REAL-TIME COACH FEEDBACK
+   ============================================================================ */
+
+.coach-feedback {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  z-index: 100;
+  max-width: 320px;
+  min-width: 200px;
+  animation: bounceIn 0.4s ease;
+  border: 2px solid var(--accent-primary);
+  text-align: center;
+}
+
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.5);
+  }
+  70% {
+    transform: translateX(-50%) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+.coach-feedback.excellent {
+  border-color: #FFD700;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.15), var(--bg-secondary));
+  box-shadow: 0 8px 32px rgba(255, 215, 0, 0.3);
+}
+
+.coach-feedback.good {
+  border-color: var(--success);
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), var(--bg-secondary));
+}
+
+.coach-feedback.ok {
+  border-color: var(--text-secondary);
+}
+
+.coach-feedback.warning {
+  border-color: #FF9500;
+  background: linear-gradient(135deg, rgba(255, 149, 0, 0.1), var(--bg-secondary));
+}
+
+.coach-feedback.suboptimal {
+  border-color: #888;
+}
+
+.coach-feedback.incorrect {
+  border-color: var(--error);
+  background: linear-gradient(135deg, rgba(244, 67, 54, 0.1), var(--bg-secondary));
+}
+
+.coach-feedback {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.feedback-content {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.feedback-icon {
+  font-size: 1.5rem;
+}
+
+.feedback-message {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.feedback-detail {
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ============================================================================
+   STATS MODAL
+   ============================================================================ */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn var(--transition-base);
+}
+
+.modal-content {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-xl);
+  max-width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.modal-close {
+  position: absolute;
+  top: var(--spacing-md);
+  right: var(--spacing-md);
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+}
+
+.stats-content h2 {
+  margin-bottom: var(--spacing-lg);
+  color: var(--text-primary);
+}
+
+.stats-section {
+  margin-bottom: var(--spacing-lg);
+}
+
+.stats-section h3 {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pattern-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.pattern-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  background: var(--glass-bg);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-sm);
+}
+
+.pattern-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.pattern-bar {
+  width: 100px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.pattern-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.pattern-score {
+  font-weight: 600;
+  width: 40px;
+  text-align: right;
+}
+
+.recommendation-card {
+  background: var(--glass-bg);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+  border-left: 3px solid var(--accent-primary);
+}
+
+.recommendation-card.high {
+  border-left-color: var(--error);
+}
+
+.recommendation-card.medium {
+  border-left-color: #FF9500;
+}
+
+.recommendation-title {
+  font-weight: 600;
+  margin-bottom: var(--spacing-xs);
+}
+
+.recommendation-desc {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.recommendation-action {
+  font-size: var(--font-size-sm);
+  color: var(--accent-primary);
+  font-style: italic;
+}
+
+/* ============================================================================
    ANIMATIONS
    ============================================================================ */
 
