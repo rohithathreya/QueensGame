@@ -500,9 +500,14 @@ document.addEventListener('click', (e) => {
 
 function handleChallengeShare() {
     if (!currentGameState || lastCompletionMillis == null) return;
+    // Ensure preview exists
+    if (!lastPreviewDataUrl) {
+        updateChallengePreview();
+    }
+
     const link = buildShareLink(lastCompletionMillis);
     const message = document.getElementById('challenge-text')?.textContent || 'I solved this queens puzzle. Can you beat me?';
-    const shareData = {
+    const baseShare = {
         title: 'Queens Puzzle Challenge',
         text: message,
         url: link
@@ -512,10 +517,17 @@ function handleChallengeShare() {
         try {
             const blob = await getPreviewBlob();
             if (!blob) return false;
-            const file = new File([blob], 'puzzle.png', { type: 'image/png' });
-            const data = { ...shareData, files: [file] };
+            const file = new File([blob], 'puzzle.png', { type: blob.type || 'image/png' });
+            // Start with files + text/title (exclude url which can make canShare fail on some Chrome builds)
+            const data = { title: baseShare.title, text: baseShare.text, files: [file] };
             if (navigator.canShare && navigator.canShare(data)) {
                 await navigator.share(data);
+                return true;
+            }
+            // Try including url if supported
+            const dataWithUrl = { ...data, url: baseShare.url };
+            if (navigator.canShare && navigator.canShare(dataWithUrl)) {
+                await navigator.share(dataWithUrl);
                 return true;
             }
             return false;
@@ -527,7 +539,7 @@ function handleChallengeShare() {
     if (navigator.share) {
         tryShareWithImage().then((usedImage) => {
             if (usedImage) return;
-            navigator.share(shareData).catch(() => {
+            navigator.share(baseShare).catch(() => {
                 copyToClipboard(link);
                 openPreviewIfPossible();
             });
