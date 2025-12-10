@@ -621,123 +621,128 @@ class DeductionEngine {
     this.puzzle = gameState.puzzle;
   }
 
-  // Find next logical deduction (for hints)
   getHint() {
-    // Priority 1: Row singles
-    const rowSingle = this.findRowSingles();
-    if (rowSingle) return { type: 'ROW_SINGLE', ...rowSingle, message: 'Only one possible position in this row!' };
+    // 1. Create a logical solver initialized with the CURRENT user board state
+    const solver = new LogicalSolver(this.puzzle.size, this.puzzle.regions);
 
-    // Priority 2: Column singles
-    const colSingle = this.findColumnSingles();
-    if (colSingle) return { type: 'COL_SINGLE', ...colSingle, message: 'Only one possible position in this column!' };
+    // Sync solver state with current game state
+    // We treat user's correct moves as facts, but incorrect moves shouldn't block hints (or should point out errors)
+    // For a helpful hint system, let's assume valid user moves are "locked in"
 
-    // Priority 3: Region singles
-    const regionSingle = this.findRegionSingles();
-    if (regionSingle) return { type: 'REGION_SINGLE', ...regionSingle, message: 'Only one possible position in this region!' };
-
-    // Priority 4: Knockout cells (cells that can't be queens)
-    const knockout = this.findKnockoutCells();
-    if (knockout) return { type: 'KNOCKOUT', ...knockout, message: 'This cell cannot be a queen!' };
-
-    return { type: 'STUCK', message: 'No obvious moves. Try exploring possibilities!' };
-  }
-
-  findRowSingles() {
-    for (let row = 0; row < this.puzzle.size; row++) {
-      const emptyCells = [];
-      let hasQueen = false;
-
-      for (let col = 0; col < this.puzzle.size; col++) {
-        const state = this.gameState.cellStates[row][col];
-        if (state === CellState.QUEEN) {
-          hasQueen = true;
-          break;
-        }
-        if (state === CellState.EMPTY) {
-          emptyCells.push({ row, col });
+    // First, check for immediate errors in user placement
+    const violations = new Validator(this.gameState).getRuleViolations();
+    if (this.isValidState(violations)) {
+      // If state is valid so far, load it into solver
+      for (let r = 0; r < this.puzzle.size; r++) {
+        for (let c = 0; c < this.puzzle.size; c++) {
+          const state = this.gameState.cellStates[r][c];
+          if (state === CellState.QUEEN) solver.board[r][c] = 1;
+          else if (state === CellState.MARKER) solver.board[r][c] = -1;
         }
       }
-
-      if (!hasQueen && emptyCells.length === 1) {
-        return emptyCells[0];
-      }
+    } else {
+      // If user has errors, hint should probably be "Fix your errors first"
+      // But let's try to find a constructive move ignoring markers, only respecting queens?
+      // Simpler: Just try to solve from scratch and see if we can find a move the user hasn't made yet.
+      return { message: "You have rule violations! Fix them before getting a hint." };
     }
-    return null;
-  }
 
-  findColumnSingles() {
-    for (let col = 0; col < this.puzzle.size; col++) {
-      const emptyCells = [];
-      let hasQueen = false;
+    // 2. Ask solver for the next logical deduction
+    // We modify the solver to return the *first* change it makes
+    const nextMove = solver.findNextMove();
 
-      for (let row = 0; row < this.puzzle.size; row++) {
-        const state = this.gameState.cellStates[row][col];
-        if (state === CellState.QUEEN) {
-          hasQueen = true;
-          break;
-        }
-        if (state === CellState.EMPTY) {
-          emptyCells.push({ row, col });
-        }
-      }
-
-      if (!hasQueen && emptyCells.length === 1) {
-        return emptyCells[0];
-      }
-    }
-    return null;
-  }
-
-  findRegionSingles() {
-    // Group cells by region
-    const regionCells = {};
-    for (let r = 0; r < this.puzzle.size; r++) {
-      for (let c = 0; c < this.puzzle.size; c++) {
-        const regionId = this.puzzle.regions[r][c];
-        if (!regionCells[regionId]) {
-          regionCells[regionId] = [];
-        }
-        regionCells[regionId].push({ row: r, col: c, state: this.gameState.cellStates[r][c] });
+    if (nextMove) {
+      if (nextMove.type === 'CROSS_OUT') {
+        return {
+          row: nextMove.row,
+          col: nextMove.col,
+          message: "Logic dictates this cell cannot be a queen (Cross it out)."
+        };
+      } else if (nextMove.type === 'PLACE_QUEEN') {
+        return {
+          row: nextMove.row,
+          col: nextMove.col,
+          message: nextMove.reason || "This is the only valid spot for a queen here!"
+        };
       }
     }
 
-    // Check each region
-    for (const regionId in regionCells) {
-      const cells = regionCells[regionId];
-      const hasQueen = cells.some(cell => cell.state === CellState.QUEEN);
-      if (hasQueen) continue;
-
-      const emptyCells = cells.filter(cell => cell.state === CellState.EMPTY);
-      if (emptyCells.length === 1) {
-        return { row: emptyCells[0].row, col: emptyCells[0].col, regionId };
-      }
-    }
-    return null;
+    return { message: "No obvious logical steps found based on current markings. Check your X's!" };
   }
 
-  findKnockoutCells() {
-    // Find cells that would make a region/row/col impossible if a queen was placed there
-    for (let r = 0; r < this.puzzle.size; r++) {
-      for (let c = 0; c < this.puzzle.size; c++) {
-        if (this.gameState.cellStates[r][c] !== CellState.EMPTY) continue;
-
-        // Simulate placing queen here
-        if (this.wouldCreateImpossibility(r, c)) {
-          return { row: r, col: c, reason: 'Would make puzzle unsolvable' };
-        }
-      }
-    }
-    return null;
-  }
-
-  wouldCreateImpossibility(row, col) {
-    // This is a simplified knockout detection
-    // A full implementation would check if placing a queen here would
-    // leave any row/column/region with no valid positions
-    // For now, return false (can be enhanced later)
-    return false;
+  isValidState(v) {
+    return v.rows.size === 0 && v.cols.size === 0 && v.regions.size === 0 && v.adjacentQueens.length === 0;
   }
 }
+
+// Extend LogicalSolver to support single-step lookahead for hints
+LogicalSolver.prototype.findNextMove = function () {
+  // 1. Check for immediate cross-outs (Basic Rules)
+  for (let r = 0; r < this.size; r++) {
+    for (let c = 0; c < this.size; c++) {
+      if (this.board[r][c] === 1) {
+        const changed = this.crossOutInvalid(r, c); // This updates internal state, but we want to catch WHICH one
+        // Actually, let's re-implement a sensing version just for the hint
+        const moves = this.getCrossOutsFor(r, c);
+        if (moves.length > 0) return { type: 'CROSS_OUT', row: moves[0].r, col: moves[0].c };
+      }
+    }
+  }
+
+  // 2. Check for hidden singles
+  const single = this.getHiddenSingle();
+  if (single) return { type: 'PLACE_QUEEN', row: single.r, col: single.c, reason: single.reason };
+
+  return null;
+};
+
+LogicalSolver.prototype.getCrossOutsFor = function (row, col) {
+  const moves = [];
+  const regionId = this.regions[row][col];
+  for (let r = 0; r < this.size; r++) {
+    for (let c = 0; c < this.size; c++) {
+      if (this.board[r][c] !== 0) continue;
+      let isInvalid = false;
+      if (r === row && c !== col) isInvalid = true;
+      else if (c === col && r !== row) isInvalid = true;
+      else if (Math.abs(r - row) <= 1 && Math.abs(c - col) <= 1 && !(r === row && c === col)) isInvalid = true;
+      else if (this.regions[r][c] === regionId && !(r === row && c === col)) isInvalid = true;
+
+      if (isInvalid) moves.push({ r, c });
+    }
+  }
+  return moves;
+};
+
+LogicalSolver.prototype.getHiddenSingle = function () {
+  // Rows
+  for (let r = 0; r < this.size; r++) {
+    const candidates = [];
+    for (let c = 0; c < this.size; c++) if (this.board[r][c] === 0) candidates.push({ r, c });
+    if (candidates.length === 1 && !this.rowHasQueen(r)) return { ...candidates[0], reason: "Only valid spot in this row" };
+  }
+  // Cols
+  for (let c = 0; c < this.size; c++) {
+    const candidates = [];
+    for (let r = 0; r < this.size; r++) if (this.board[r][c] === 0) candidates.push({ r, c });
+    if (candidates.length === 1 && !this.colHasQueen(c)) return { ...candidates[0], reason: "Only valid spot in this column" };
+  }
+  // Regions
+  const regionCells = {};
+  for (let r = 0; r < this.size; r++) {
+    for (let c = 0; c < this.size; c++) {
+      const rid = this.regions[r][c];
+      if (!regionCells[rid]) regionCells[rid] = [];
+      if (this.board[r][c] === 0) regionCells[rid].push({ r, c });
+    }
+  }
+  for (const rid in regionCells) {
+    if (regionCells[rid].length === 1 && !this.regionHasQueen(parseInt(rid))) {
+      return { ...regionCells[rid][0], reason: "Only valid spot in this region" };
+    }
+  }
+  return null;
+};
 
 // ============================================================================
 // AUTO HELPER (Auto-X Placement)
