@@ -638,6 +638,14 @@ class PatternProfiler {
     };
   }
 
+  /**
+   * Get recent session reports (most recent first)
+   * @param {number} limit - number of sessions to return
+   */
+  getRecentSessions(limit = 10) {
+    return [...this.data.sessions].slice(-limit).reverse();
+  }
+
   reset() {
     this.data = this.createDefaultData();
     this.save();

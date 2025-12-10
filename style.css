@@ -73,6 +73,7 @@ body {
   min-height: 100vh;
   padding: var(--spacing-lg);
   overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* Animated gradient overlay */
@@ -111,6 +112,7 @@ body::before {
   margin: 0 auto;
   position: relative;
   z-index: 1;
+  padding-bottom: var(--spacing-xl);
 }
 
 header {
@@ -312,7 +314,16 @@ select {
 .board-container {
   display: flex;
   justify-content: center;
+  max-height: calc(100vh - 260px);
+  overflow: auto;
+  padding: var(--spacing-sm);
   animation: fadeInUp 0.6s ease 0.4s backwards;
+}
+
+@media (max-width: 768px) {
+  .board-container {
+    max-height: 70vh;
+  }
 }
 
 .board {
@@ -503,6 +514,8 @@ select {
   padding: var(--spacing-xl);
   text-align: center;
   max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
   animation: scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -1061,6 +1074,63 @@ select {
   font-weight: 600;
   width: 40px;
   text-align: right;
+}
+
+/* Match reports */
+.match-report-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.match-report-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+  box-shadow: var(--glass-shadow);
+}
+
+.match-report-card .report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-xs);
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.match-report-card .report-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.match-report-card .report-time {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.match-report-card .report-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: var(--spacing-xs);
+}
+
+.match-report-card .report-stat {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs);
+}
+
+.match-report-card .report-label {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.match-report-card .report-value {
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .recommendation-card {

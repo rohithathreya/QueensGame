@@ -816,6 +816,7 @@ function showStatsModal() {
 
     const profiler = getProfiler();
     const stats = profiler.getStats();
+    const recentSessions = profiler.getRecentSessions ? profiler.getRecentSessions(6) : [];
 
     // Build stats HTML
     let html = `
@@ -920,10 +921,73 @@ function showStatsModal() {
         </div>
     `;
 
+    // Recent match reports
+    if (recentSessions.length > 0) {
+        html += `
+            <div class="stats-section">
+                <h3>Recent Match Reports</h3>
+                <div class="match-report-list">
+        `;
+
+        for (const session of recentSessions) {
+            const playedAt = session.timestamp ? new Date(session.timestamp).toLocaleString() : 'Unknown date';
+            const timeSpent = formatDuration(session.timeMs || 0);
+            const score = session.score ?? '--';
+            const guesses = session.guessCount ?? 0;
+            const optimal = session.optimalMoves ?? 0;
+            const size = session.size || '?';
+            const diff = session.difficulty || 'Unknown';
+
+            html += `
+                <div class="match-report-card">
+                    <div class="report-header">
+                        <span class="report-title">Puzzle ${size}×${size} · ${diff}</span>
+                        <span class="report-time">${playedAt}</span>
+                    </div>
+                    <div class="report-body">
+                        <div class="report-stat">
+                            <span class="report-label">Score</span>
+                            <span class="report-value">${score}</span>
+                        </div>
+                        <div class="report-stat">
+                            <span class="report-label">Time</span>
+                            <span class="report-value">${timeSpent}</span>
+                        </div>
+                        <div class="report-stat">
+                            <span class="report-label">Optimal</span>
+                            <span class="report-value">${optimal}</span>
+                        </div>
+                        <div class="report-stat">
+                            <span class="report-label">Guesses</span>
+                            <span class="report-value">${guesses}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        html += `
+                </div>
+            </div>
+        `;
+    }
+
     html += `</div>`;
 
     body.innerHTML = html;
     modal.style.display = 'flex';
+}
+
+function formatDuration(ms) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes >= 60) {
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        return `${hours}h ${String(mins).padStart(2, '0')}m`;
+    }
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function hideStatsModal() {
