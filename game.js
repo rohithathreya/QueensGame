@@ -326,137 +326,338 @@ class SolutionGenerator {
 }
 
 // ============================================================================
-// LOGICAL SOLVER (Ensures No Guessing)
+// LOGICAL SOLVER (Deterministic, step-traceable)
 // ============================================================================
 
 class LogicalSolver {
-  constructor(size, regions) {
+  constructor(size, regions, targetSolution = null) {
     this.size = size;
     this.regions = regions;
+    this.targetSolution = targetSolution;
     // 0 = Unknown, 1 = Queen, -1 = Crossed Out (X)
     this.board = Array(size).fill(null).map(() => Array(size).fill(0));
+    this.steps = [];
   }
 
-  // Returns true if fully solvable without guessing
-  isSolvable() {
-    let changed = true;
-    while (changed) {
-      changed = false;
-      changed |= this.applyBasicRules();
-      if (!changed) {
-        // If stuck, check if completed
-        if (this.isSolved()) return true;
-        // TODO: Add advanced lookahead if needed, but basic rules cover "no guessing" mostly.
-        // For a strictly "no guessing" puzzle we usually want it solvable by basics.
-        return false;
+  clone() {
+    const next = new LogicalSolver(this.size, this.regions, this.targetSolution);
+    next.board = this.board.map(r => [...r]);
+    return next;
+  }
+
+  // Difficulty scoring – higher means more reasoning was required
+  getDifficultyScore() {
+    const weights = {
+      PLACE_QUEEN_ROW: 1,
+      PLACE_QUEEN_COL: 1,
+      PLACE_QUEEN_REGION: 1,
+      NISHIO_ELIMINATION: 3
+    };
+    return this.steps.reduce((acc, step) => acc + (weights[step.type] || 0), 0);
+  }
+
+  usedAdvancedStep() {
+    return this.steps.some(step => step.type === 'NISHIO_ELIMINATION');
+  }
+
+  isValidCell(row, col) {
+    return row >= 0 && row < this.size && col >= 0 && col < this.size;
+  }
+
+  isCandidate(row, col) {
+    return this.board[row][col] === 0;
+  }
+
+  setQueen(row, col, reason, type = 'PLACE_QUEEN') {
+    const cell = this.board[row][col];
+    if (cell === 1) return { changed: false };
+    if (cell === -1) return { contradiction: true };
+
+    this.board[row][col] = 1;
+    this.steps.push({ type, row, col, reason });
+
+    const cross = this.crossOutFromQueen(row, col);
+    if (cross.contradiction) return { contradiction: true };
+    return { changed: true };
+  }
+
+  setImpossible(row, col, reason, type = 'ELIMINATE') {
+    const cell = this.board[row][col];
+    if (cell === 1) return { contradiction: true };
+    if (cell === -1) return { changed: false };
+
+    this.board[row][col] = -1;
+    if (reason) {
+      this.steps.push({ type, row, col, reason });
+    }
+    return { changed: true };
+  }
+
+  crossOutFromQueen(row, col) {
+    let changed = false;
+    const mark = (r, c) => {
+      const res = this.setImpossible(r, c);
+      if (res.contradiction) return res;
+      if (res.changed) changed = true;
+      return null;
+    };
+
+    // Row & column
+    for (let c = 0; c < this.size; c++) {
+      if (c === col) continue;
+      const res = mark(row, c);
+      if (res && res.contradiction) return { contradiction: true };
+    }
+    for (let r = 0; r < this.size; r++) {
+      if (r === row) continue;
+      const res = mark(r, col);
+      if (res && res.contradiction) return { contradiction: true };
+    }
+
+    // Neighbors (no touching)
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nr = row + dr;
+        const nc = col + dc;
+        if (!this.isValidCell(nr, nc)) continue;
+        const res = mark(nr, nc);
+        if (res && res.contradiction) return { contradiction: true };
       }
     }
-    return this.isSolved();
-  }
 
-  isSolved() {
-    let queens = 0;
+    // Region
+    const regionId = this.regions[row][col];
     for (let r = 0; r < this.size; r++) {
       for (let c = 0; c < this.size; c++) {
-        if (this.board[r][c] === 1) queens++;
+        if (r === row && c === col) continue;
+        if (this.regions[r][c] !== regionId) continue;
+        const res = mark(r, c);
+        if (res && res.contradiction) return { contradiction: true };
       }
     }
-    return queens === this.size;
+
+    return { changed };
   }
 
-  applyBasicRules() {
+  rowInfo(row) {
+    let queens = 0;
+    const candidates = [];
+    for (let c = 0; c < this.size; c++) {
+      const cell = this.board[row][c];
+      if (cell === 1) queens++;
+      else if (cell === 0) candidates.push({ r: row, c });
+    }
+    return { queens, candidates };
+  }
+
+  colInfo(col) {
+    let queens = 0;
+    const candidates = [];
+    for (let r = 0; r < this.size; r++) {
+      const cell = this.board[r][col];
+      if (cell === 1) queens++;
+      else if (cell === 0) candidates.push({ r, c: col });
+    }
+    return { queens, candidates };
+  }
+
+  regionInfo(regionId) {
+    let queens = 0;
+    const candidates = [];
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        if (this.regions[r][c] !== regionId) continue;
+        const cell = this.board[r][c];
+        if (cell === 1) queens++;
+        else if (cell === 0) candidates.push({ r, c });
+      }
+    }
+    return { queens, candidates };
+  }
+
+  applyCoreEliminations() {
     let changed = false;
 
-    // 1. Cross out impossible cells (neighbors of queens, same row/col/region)
+    // Enforce existing queens onto the grid
     for (let r = 0; r < this.size; r++) {
       for (let c = 0; c < this.size; c++) {
         if (this.board[r][c] === 1) {
-          changed |= this.crossOutInvalid(r, c);
+          const res = this.crossOutFromQueen(r, c);
+          if (res.contradiction) return { contradiction: true };
+          if (res.changed) changed = true;
         }
       }
     }
 
-    // 2. Find singles (only one spot left in Row, Col, or Region)
-    changed |= this.findHiddenSingles();
+    const singles = this.placeHiddenSingles();
+    if (singles.contradiction) return { contradiction: true };
+    if (singles.changed) changed = true;
 
-    return changed;
+    return { changed };
   }
 
-  crossOutInvalid(row, col) {
-    let changed = false;
-    const regionId = this.regions[row][col];
-
-    // Cross Row, Col, Region, Neighbors
-    for (let r = 0; r < this.size; r++) {
-      for (let c = 0; c < this.size; c++) {
-        if (this.board[r][c] !== 0) continue; // Already set
-
-        let isInvalid = false;
-        if (r === row && c !== col) isInvalid = true; // Review row
-        else if (c === col && r !== row) isInvalid = true; // Review col
-        else if (Math.abs(r - row) <= 1 && Math.abs(c - col) <= 1 && !(r === row && c === col)) isInvalid = true; // Review neighbors
-        else if (this.regions[r][c] === regionId && !(r === row && c === col)) isInvalid = true; // Review region
-
-        if (isInvalid) {
-          this.board[r][c] = -1; // Cross out
-          changed = true;
-        }
-      }
-    }
-    return changed;
-  }
-
-  findHiddenSingles() {
+  placeHiddenSingles() {
     let changed = false;
 
     // Rows
     for (let r = 0; r < this.size; r++) {
-      const candidates = [];
-      for (let c = 0; c < this.size; c++) if (this.board[r][c] === 0) candidates.push({ r, c });
-      // If row has no queen and exactly 1 candidate
-      if (candidates.length === 1 && !this.rowHasQueen(r)) {
-        this.board[candidates[0].r][candidates[0].c] = 1;
+      const info = this.rowInfo(r);
+      if (info.queens > 1) return { contradiction: true };
+      if (info.queens === 0 && info.candidates.length === 0) return { contradiction: true };
+      if (info.queens === 0 && info.candidates.length === 1) {
+        const res = this.setQueen(info.candidates[0].r, info.candidates[0].c, "Only valid cell in this row", 'PLACE_QUEEN_ROW');
+        if (res.contradiction) return { contradiction: true };
         changed = true;
       }
     }
 
-    // Cols
+    // Columns
     for (let c = 0; c < this.size; c++) {
-      const candidates = [];
-      for (let r = 0; r < this.size; r++) if (this.board[r][c] === 0) candidates.push({ r, c });
-      if (candidates.length === 1 && !this.colHasQueen(c)) {
-        this.board[candidates[0].r][candidates[0].c] = 1;
+      const info = this.colInfo(c);
+      if (info.queens > 1) return { contradiction: true };
+      if (info.queens === 0 && info.candidates.length === 0) return { contradiction: true };
+      if (info.queens === 0 && info.candidates.length === 1) {
+        const res = this.setQueen(info.candidates[0].r, info.candidates[0].c, "Only valid cell in this column", 'PLACE_QUEEN_COL');
+        if (res.contradiction) return { contradiction: true };
         changed = true;
       }
     }
 
     // Regions
-    const regionCells = {};
-    for (let r = 0; r < this.size; r++) {
-      for (let c = 0; c < this.size; c++) {
-        const rid = this.regions[r][c];
-        if (!regionCells[rid]) regionCells[rid] = [];
-        if (this.board[r][c] === 0) regionCells[rid].push({ r, c });
-      }
-    }
-    for (const rid in regionCells) {
-      if (regionCells[rid].length === 1 && !this.regionHasQueen(parseInt(rid))) {
-        const cell = regionCells[rid][0];
-        this.board[cell.r][cell.c] = 1;
+    const regionCount = this.size; // region ids go from 0..size-1
+    for (let rid = 0; rid < regionCount; rid++) {
+      const info = this.regionInfo(rid);
+      if (info.queens > 1) return { contradiction: true };
+      if (info.queens === 0 && info.candidates.length === 0) return { contradiction: true };
+      if (info.queens === 0 && info.candidates.length === 1) {
+        const res = this.setQueen(info.candidates[0].r, info.candidates[0].c, "Only valid cell in this region", 'PLACE_QUEEN_REGION');
+        if (res.contradiction) return { contradiction: true };
         changed = true;
       }
     }
 
-    return changed;
+    return { changed };
   }
 
-  rowHasQueen(r) { return this.board[r].some(val => val === 1); }
-  colHasQueen(c) { return this.board.map(row => row[c]).some(val => val === 1); }
-  regionHasQueen(rid) {
-    for (let r = 0; r < this.size; r++)
-      for (let c = 0; c < this.size; c++)
-        if (this.regions[r][c] === rid && this.board[r][c] === 1) return true;
-    return false;
+  attemptNishioElimination(stepLimit) {
+    let changed = false;
+
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        if (!this.isCandidate(r, c)) continue;
+
+        const trial = this.clone();
+        const setRes = trial.setQueen(r, c);
+        if (setRes.contradiction) {
+          const res = this.setImpossible(r, c, "Assumption immediately conflicts", 'NISHIO_ELIMINATION');
+          if (res.contradiction) return { contradiction: true };
+          if (res.changed) changed = true;
+          if (stepLimit && this.steps.length >= stepLimit) return { changed };
+          continue;
+        }
+
+        const res = trial.solveToFixedPoint({ allowNishio: false });
+        if (res.contradiction || !trial.isConsistent()) {
+          const elim = this.setImpossible(r, c, "Assuming a queen here breaks the puzzle", 'NISHIO_ELIMINATION');
+          if (elim.contradiction) return { contradiction: true };
+          if (elim.changed) changed = true;
+          if (stepLimit && this.steps.length >= stepLimit) return { changed };
+        }
+      }
+    }
+
+    return { changed };
+  }
+
+  solveToFixedPoint({ allowNishio = true, stepLimit = null } = {}) {
+    let guard = 0;
+    while (guard < 400) {
+      guard++;
+      const elim = this.applyCoreEliminations();
+      if (elim.contradiction) return { contradiction: true };
+      if (stepLimit && this.steps.length >= stepLimit) return { contradiction: false };
+
+      if (this.isSolved()) return { contradiction: false };
+
+      // If no progress from core rules, try one-step lookahead
+      if (!elim.changed) {
+        if (allowNishio) {
+          const nishio = this.attemptNishioElimination(stepLimit);
+          if (nishio.contradiction) return { contradiction: true };
+          if (stepLimit && this.steps.length >= stepLimit) return { contradiction: false };
+          if (nishio.changed) continue;
+        }
+        return { contradiction: false };
+      }
+    }
+    return { contradiction: true };
+  }
+
+  isConsistent() {
+    for (let r = 0; r < this.size; r++) {
+      const info = this.rowInfo(r);
+      if (info.queens > 1) return false;
+      if (info.queens === 0 && info.candidates.length === 0) return false;
+    }
+    for (let c = 0; c < this.size; c++) {
+      const info = this.colInfo(c);
+      if (info.queens > 1) return false;
+      if (info.queens === 0 && info.candidates.length === 0) return false;
+    }
+    for (let rid = 0; rid < this.size; rid++) {
+      const info = this.regionInfo(rid);
+      if (info.queens > 1) return false;
+      if (info.queens === 0 && info.candidates.length === 0) return false;
+    }
+    return true;
+  }
+
+  isSolved() {
+    // Exactly one queen per row/col/region
+    for (let r = 0; r < this.size; r++) {
+      if (this.rowInfo(r).queens !== 1) return false;
+    }
+    for (let c = 0; c < this.size; c++) {
+      if (this.colInfo(c).queens !== 1) return false;
+    }
+    for (let rid = 0; rid < this.size; rid++) {
+      if (this.regionInfo(rid).queens !== 1) return false;
+    }
+    return true;
+  }
+
+  matchesTargetSolution() {
+    if (!this.targetSolution) return true;
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        const expected = this.targetSolution[r][c] === 1 ? 1 : -1;
+        const cell = this.board[r][c];
+        if (expected === 1 && cell !== 1) return false;
+        if (expected !== 1 && cell === 1) return false;
+      }
+    }
+    return true;
+  }
+
+  solveLogically() {
+    const result = this.solveToFixedPoint({ allowNishio: true });
+    if (result.contradiction) {
+      return { solved: false, difficultyScore: this.getDifficultyScore(), usedAdvanced: this.usedAdvancedStep(), steps: this.steps };
+    }
+    if (!this.isSolved()) {
+      return { solved: false, difficultyScore: this.getDifficultyScore(), usedAdvanced: this.usedAdvancedStep(), steps: this.steps };
+    }
+    if (!this.matchesTargetSolution()) {
+      return { solved: false, difficultyScore: this.getDifficultyScore(), usedAdvanced: this.usedAdvancedStep(), steps: this.steps };
+    }
+    return { solved: true, difficultyScore: this.getDifficultyScore(), usedAdvanced: this.usedAdvancedStep(), steps: this.steps };
+  }
+
+  getFirstStep() {
+    const temp = this.clone();
+    temp.solveToFixedPoint({ allowNishio: true, stepLimit: 1 });
+    return temp.steps[0] || null;
   }
 }
 
@@ -468,8 +669,13 @@ class PuzzleGenerator {
   static generate(difficulty) {
     const size = difficulty.size;
     let attempts = 0;
+    const targets = PuzzleGenerator.getDifficultyTargets(difficulty);
+    let minScore = targets.minScore;
+    const requireAdvanced = targets.requireAdvanced;
+    let fallbackPuzzle = null;
+    let fallbackScore = -Infinity;
 
-    while (attempts < 1000) { // Safety break
+    while (attempts < 2000) { // Guard to prevent runaway generation
       attempts++;
 
       // 1. Generate random regions
@@ -481,18 +687,47 @@ class PuzzleGenerator {
       const result = solutionGen.generate();
 
       if (result.count === 1) {
-        // 3. Check for logical solvability (no guessing)
-        const solver = new LogicalSolver(size, regions);
-        if (solver.isSolvable()) {
-          console.log(`Generated valid puzzle in ${attempts} attempts`);
+        // 3. Check for logical solvability (no guessing) and difficulty
+        const solver = new LogicalSolver(size, regions, solutionGen.firstSolution);
+        const logicResult = solver.solveLogically();
+
+        const meetsDifficulty = logicResult.solved &&
+          logicResult.difficultyScore >= minScore &&
+          (!requireAdvanced || logicResult.usedAdvanced);
+
+        if (logicResult.solved && logicResult.difficultyScore > fallbackScore) {
+          fallbackPuzzle = new QueensPuzzle(size, regions, solutionGen.firstSolution);
+          fallbackScore = logicResult.difficultyScore;
+        }
+
+        if (meetsDifficulty) {
+          console.log(`Generated valid puzzle in ${attempts} attempts (logic score: ${logicResult.difficultyScore})`);
           return new QueensPuzzle(size, regions, solutionGen.firstSolution);
         }
       }
+
+      // Slightly relax minimum score after many attempts but still keep puzzles non-trivial
+      if (attempts === 900 && minScore > targets.minScore - 2) {
+        minScore = targets.minScore - 2;
+        console.warn(`Relaxing minimum logic score to ${minScore} after ${attempts} attempts`);
+      }
     }
 
-    // Fallback if strict generation too hard (shouldn't happen often for small sizes)
-    console.warn("Failed to generate strict puzzle, retrying...");
-    return PuzzleGenerator.generate(difficulty);
+    // If we couldn't hit the target, return the best puzzle we found that was still logically solvable and unique
+    if (fallbackPuzzle) {
+      console.warn("Returning best available puzzle after extended search");
+      return fallbackPuzzle;
+    }
+
+    throw new Error("Unable to generate a puzzle that meets the strict criteria");
+  }
+
+  static getDifficultyTargets(difficulty) {
+    const base = difficulty.size;
+    const name = difficulty.name.toLowerCase();
+    if (name === 'easy') return { minScore: base + 2, requireAdvanced: false };
+    if (name === 'medium') return { minScore: base + 6, requireAdvanced: true };
+    return { minScore: base + 10, requireAdvanced: true }; // hard and above
   }
 }
 
@@ -648,17 +883,16 @@ class DeductionEngine {
     }
 
     // 2. Ask solver for the next logical deduction
-    // We modify the solver to return the *first* change it makes
-    const nextMove = solver.findNextMove();
+    const nextMove = solver.getFirstStep();
 
     if (nextMove) {
-      if (nextMove.type === 'CROSS_OUT') {
+      if (nextMove.type === 'NISHIO_ELIMINATION' || nextMove.type === 'ELIMINATE') {
         return {
           row: nextMove.row,
           col: nextMove.col,
-          message: "Logic dictates this cell cannot be a queen (Cross it out)."
+          message: nextMove.reason || "Logic dictates this cell cannot be a queen (Cross it out)."
         };
-      } else if (nextMove.type === 'PLACE_QUEEN') {
+      } else {
         return {
           row: nextMove.row,
           col: nextMove.col,
@@ -675,74 +909,6 @@ class DeductionEngine {
   }
 }
 
-// Extend LogicalSolver to support single-step lookahead for hints
-LogicalSolver.prototype.findNextMove = function () {
-  // 1. Check for immediate cross-outs (Basic Rules)
-  for (let r = 0; r < this.size; r++) {
-    for (let c = 0; c < this.size; c++) {
-      if (this.board[r][c] === 1) {
-        const changed = this.crossOutInvalid(r, c); // This updates internal state, but we want to catch WHICH one
-        // Actually, let's re-implement a sensing version just for the hint
-        const moves = this.getCrossOutsFor(r, c);
-        if (moves.length > 0) return { type: 'CROSS_OUT', row: moves[0].r, col: moves[0].c };
-      }
-    }
-  }
-
-  // 2. Check for hidden singles
-  const single = this.getHiddenSingle();
-  if (single) return { type: 'PLACE_QUEEN', row: single.r, col: single.c, reason: single.reason };
-
-  return null;
-};
-
-LogicalSolver.prototype.getCrossOutsFor = function (row, col) {
-  const moves = [];
-  const regionId = this.regions[row][col];
-  for (let r = 0; r < this.size; r++) {
-    for (let c = 0; c < this.size; c++) {
-      if (this.board[r][c] !== 0) continue;
-      let isInvalid = false;
-      if (r === row && c !== col) isInvalid = true;
-      else if (c === col && r !== row) isInvalid = true;
-      else if (Math.abs(r - row) <= 1 && Math.abs(c - col) <= 1 && !(r === row && c === col)) isInvalid = true;
-      else if (this.regions[r][c] === regionId && !(r === row && c === col)) isInvalid = true;
-
-      if (isInvalid) moves.push({ r, c });
-    }
-  }
-  return moves;
-};
-
-LogicalSolver.prototype.getHiddenSingle = function () {
-  // Rows
-  for (let r = 0; r < this.size; r++) {
-    const candidates = [];
-    for (let c = 0; c < this.size; c++) if (this.board[r][c] === 0) candidates.push({ r, c });
-    if (candidates.length === 1 && !this.rowHasQueen(r)) return { ...candidates[0], reason: "Only valid spot in this row" };
-  }
-  // Cols
-  for (let c = 0; c < this.size; c++) {
-    const candidates = [];
-    for (let r = 0; r < this.size; r++) if (this.board[r][c] === 0) candidates.push({ r, c });
-    if (candidates.length === 1 && !this.colHasQueen(c)) return { ...candidates[0], reason: "Only valid spot in this column" };
-  }
-  // Regions
-  const regionCells = {};
-  for (let r = 0; r < this.size; r++) {
-    for (let c = 0; c < this.size; c++) {
-      const rid = this.regions[r][c];
-      if (!regionCells[rid]) regionCells[rid] = [];
-      if (this.board[r][c] === 0) regionCells[rid].push({ r, c });
-    }
-  }
-  for (const rid in regionCells) {
-    if (regionCells[rid].length === 1 && !this.regionHasQueen(parseInt(rid))) {
-      return { ...regionCells[rid][0], reason: "Only valid spot in this region" };
-    }
-  }
-  return null;
-};
 
 // ============================================================================
 // AUTO HELPER (Auto-X Placement)
