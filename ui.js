@@ -17,6 +17,61 @@ let sharedPuzzleOverride = null;
 let lastCompletionMillis = null;
 let lastPreviewDataUrl = null;
 
+// ============================================================================ 
+// Bit-level encoding helpers for compact puzzle links 
+// ============================================================================
+
+function packBits(values, bitsPerValue) {
+    const totalBits = values.length * bitsPerValue;
+    const byteLen = Math.ceil(totalBits / 8);
+    const out = new Uint8Array(byteLen);
+    let bitPos = 0;
+    for (const v of values) {
+        for (let b = 0; b < bitsPerValue; b++) {
+            if (v & (1 << b)) {
+                const byteIndex = Math.floor(bitPos / 8);
+                const bitIndex = bitPos % 8;
+                out[byteIndex] |= (1 << bitIndex);
+            }
+            bitPos++;
+        }
+    }
+    return out;
+}
+
+function unpackBits(buf, count, bitsPerValue, offsetBits = 0) {
+    const res = [];
+    let bitPos = offsetBits;
+    for (let i = 0; i < count; i++) {
+        let v = 0;
+        for (let b = 0; b < bitsPerValue; b++) {
+            const byteIndex = Math.floor(bitPos / 8);
+            const bitIndex = bitPos % 8;
+            if (buf[byteIndex] & (1 << bitIndex)) {
+                v |= (1 << b);
+            }
+            bitPos++;
+        }
+        res.push(v);
+    }
+    return { values: res, nextBit: bitPos };
+}
+
+function toBase64Url(bytes) {
+    let binary = '';
+    for (const b of bytes) binary += String.fromCharCode(b);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromBase64Url(str) {
+    const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const bin = atob(padded);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+
 // Settings
 let settings = {
     autoX: false,  // permanently off per request
@@ -404,22 +459,55 @@ function generatePuzzleAsync(difficulty) {
 // ============================================================================
 
 function encodePuzzle(puzzle) {
-    const payload = {
-        s: puzzle.size,
-        r: puzzle.regions,
-        sol: puzzle.solution
-    };
-    const json = JSON.stringify(payload);
-    const base64 = btoa(unescape(encodeURIComponent(json)));
-    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const size = puzzle.size;
+    const cells = size * size;
+    const flatRegions = [];
+    const flatSolution = [];
+    for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+            flatRegions.push(puzzle.regions[r][c]);
+            flatSolution.push(puzzle.solution[r][c] ? 1 : 0);
+        }
+    }
+    // regions need up to 3 bits (size <= 8), solutions 1 bit
+    const regBuf = packBits(flatRegions, 3);
+    const solBuf = packBits(flatSolution, 1);
+    // header: [size (1 byte), regLen (2 bytes little endian), solLen (2 bytes little endian)]
+    const header = new Uint8Array(5);
+    header[0] = size;
+    header[1] = regBuf.length & 0xff;
+    header[2] = (regBuf.length >> 8) & 0xff;
+    header[3] = solBuf.length & 0xff;
+    header[4] = (solBuf.length >> 8) & 0xff;
+    const all = new Uint8Array(header.length + regBuf.length + solBuf.length);
+    all.set(header, 0);
+    all.set(regBuf, header.length);
+    all.set(solBuf, header.length + regBuf.length);
+    return toBase64Url(all);
 }
 
 function decodePuzzle(code) {
-    const base64 = code.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-    const json = decodeURIComponent(escape(atob(padded)));
-    const data = JSON.parse(json);
-    return new QueensPuzzle(data.s, data.r, data.sol);
+    const bytes = fromBase64Url(code);
+    const size = bytes[0];
+    const regLen = bytes[1] | (bytes[2] << 8);
+    const solLen = bytes[3] | (bytes[4] << 8);
+    const regBuf = bytes.slice(5, 5 + regLen);
+    const solBuf = bytes.slice(5 + regLen, 5 + regLen + solLen);
+    const cells = size * size;
+    const { values: flatRegions } = unpackBits(regBuf, cells, 3);
+    const { values: flatSolution } = unpackBits(solBuf, cells, 1);
+    const regions = [];
+    const solution = [];
+    for (let r = 0; r < size; r++) {
+        regions.push([]);
+        solution.push([]);
+        for (let c = 0; c < size; c++) {
+            const idx = r * size + c;
+            regions[r][c] = flatRegions[idx];
+            solution[r][c] = flatSolution[idx] ? 1 : 0;
+        }
+    }
+    return new QueensPuzzle(size, regions, solution);
 }
 
 function tryLoadSharedPuzzleFromUrl() {
@@ -518,19 +606,27 @@ function handleChallengeShare() {
             const blob = await getPreviewBlob();
             if (!blob) return false;
             const file = new File([blob], 'puzzle.png', { type: blob.type || 'image/png' });
-            // Start with files + text/title (exclude url which can make canShare fail on some Chrome builds)
-            const data = { title: baseShare.title, text: baseShare.text, files: [file] };
-            if (navigator.canShare && navigator.canShare(data)) {
-                await navigator.share(data);
-                return true;
+            // Try multiple payload shapes to satisfy picky canShare implementations
+            const payloads = [
+                { title: baseShare.title, text: baseShare.text, url: baseShare.url, files: [file] },
+                { title: baseShare.title, text: baseShare.text, files: [file] },
+                { title: baseShare.title, url: baseShare.url, files: [file] },
+                { text: baseShare.text, url: baseShare.url, files: [file] },
+                { files: [file] }
+            ];
+            for (const data of payloads) {
+                if (navigator.canShare && navigator.canShare(data)) {
+                    await navigator.share(data);
+                    return true;
+                }
             }
-            // Try including url if supported
-            const dataWithUrl = { ...data, url: baseShare.url };
-            if (navigator.canShare && navigator.canShare(dataWithUrl)) {
-                await navigator.share(dataWithUrl);
+            // Last-ditch: attempt share with url only
+            try {
+                await navigator.share(baseShare);
                 return true;
+            } catch (_) {
+                return false;
             }
-            return false;
         } catch (err) {
             return false;
         }
