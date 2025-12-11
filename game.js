@@ -18,18 +18,18 @@ const Difficulty = {
 };
 
 // High-contrast color palette for easy region differentiation
-// Softer, lighter region colors for the light theme
+// Medium-light region colors for the light theme (more contrast)
 const REGION_COLORS = [
-  '#FFD2D2',  // Soft red
-  '#CFE4FF',  // Soft blue
-  '#D5F5E3',  // Soft green
-  '#FFE7BF',  // Soft orange/yellow
-  '#E7D9FF',  // Soft purple
-  '#CFF6F6',  // Soft teal
-  '#FFF5BF',  // Soft yellow
-  '#FFD6EB',  // Soft pink
-  '#E0F2C2',  // Soft lime
-  '#E8D9CC'   // Soft brown/tan
+  '#FFB3B3',  // Soft red
+  '#9CC7FF',  // Soft blue
+  '#AEE6BF',  // Soft green
+  '#FFC977',  // Soft orange/yellow
+  '#D2B8FF',  // Soft purple
+  '#8FE7E7',  // Soft teal
+  '#FFE28A',  // Soft yellow
+  '#FFB7DA',  // Soft pink
+  '#C9E99C',  // Soft lime
+  '#D1B8A0'   // Soft brown/tan
 ];
 
 // ============================================================================
