@@ -7,25 +7,25 @@
    ============================================================================ */
 
 :root {
-  /* Colors */
-  --bg-primary: #0a0e1a;
-  --bg-secondary: #121827;
-  --bg-tertiary: #1a1f35;
+  /* Colors - light theme */
+  --bg-primary: #f9fafb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f3f4f6;
 
-  --text-primary: #e8edf5;
-  --text-secondary: #a0a8ba;
+  --text-primary: #111827;
+  --text-secondary: #374151;
   --text-muted: #6b7280;
 
-  --accent-primary: hsl(260, 90%, 65%);
-  --accent-glow: hsla(260, 90%, 65%, 0.4);
+  --accent-primary: #2563eb;
+  --accent-glow: rgba(37, 99, 235, 0.35);
 
-  --success: hsl(140, 70%, 55%);
-  --error: hsl(0, 85%, 65%);
+  --success: #16a34a;
+  --error: #dc2626;
 
   /* Glassmorphism */
-  --glass-bg: rgba(255, 255, 255, 0.05);
-  --glass-border: rgba(255, 255, 255, 0.1);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
 
   /* Spacing */
   --spacing-xs: 0.5rem;
@@ -67,7 +67,7 @@
 
 body {
   font-family: var(--font-family);
-  background: linear-gradient(135deg, #0a0e1a 0%, #1a1430 50%, #0f1420 100%);
+  background: linear-gradient(135deg, #eef2ff 0%, #ffffff 50%, #e5e7eb 100%);
   background-attachment: fixed;
   color: var(--text-primary);
   min-height: 100vh;
@@ -144,7 +144,7 @@ h1 {
 
 .controls {
   background: var(--glass-bg);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   padding: var(--spacing-md);
@@ -335,9 +335,9 @@ select {
   /* thick outer border feel */
   border-radius: 4px;
   /* minimal corner */
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
   position: relative;
-  border: 2px solid var(--text-secondary);
+  border: 2px solid #000000;
 }
 
 .board::before {
@@ -359,13 +359,13 @@ select {
   position: relative;
   overflow: hidden;
   user-select: none;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid #000000;
   /* Subtle grid lines */
 }
 
 /* Hover effect - just explicit highlight, no scaling */
 .cell:hover {
-  background-color: rgba(255, 255, 255, 0.1) !important;
+  background-color: rgba(0, 0, 0, 0.08) !important;
   z-index: 10;
 }
 
@@ -374,7 +374,7 @@ select {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  background: linear-gradient(135deg, transparent, rgba(0, 0, 0, 0.05), transparent);
   transform: translateX(-100%);
   transition: transform var(--transition-slow);
 }
@@ -384,8 +384,8 @@ select {
 }
 
 .cell:hover {
-  transform: scale(1.08);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  transform: scale(1.02);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
   z-index: 10;
 }
 
@@ -415,8 +415,8 @@ select {
 
 .cell.marker::after {
   content: '✕';
-  color: #ffffff;
-  font-weight: 700;
+  color: #000000;
+  font-weight: 800;
   animation: popIn var(--transition-base);
   position: relative;
   z-index: 1;
@@ -431,15 +431,15 @@ select {
   content: '';
   position: absolute;
   inset: 0;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.1);
   border-radius: var(--radius-sm);
   z-index: -1;
 }
 
 .cell.queen::after {
   content: '♛';
-  color: white;
-  text-shadow: 0 0 20px var(--accent-glow), 0 4px 8px rgba(0, 0, 0, 0.5);
+  color: #000000;
+  text-shadow: none;
   animation: popIn var(--transition-base);
   position: relative;
   z-index: 1;
@@ -448,8 +448,8 @@ select {
 /* Violation highlighting */
 .cell.violation {
   animation: shake 0.4s ease, pulse 0.6s ease infinite;
-  border: 2px solid var(--error) !important;
-  box-shadow: 0 0 20px rgba(255, 70, 70, 0.5) !important;
+  border: 2px solid #000 !important;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.35) !important;
 }
 
 .loading {
