@@ -235,7 +235,7 @@ function showHint() {
                 col: coachHint.location.col,
                 message: `Look for a ${coachHint.patternName}`
             };
-            
+
             // Add a tip if available
             if (coachHint.tips && coachHint.tips.length > 0) {
                 hintMessage = `${currentHint.message}\n💡 ${coachHint.tips[0]}`;
@@ -298,11 +298,11 @@ function createCell(row, col) {
     cell.dataset.col = col;
     cell.id = `cell-${row}-${col}`;
 
-    // Set region color
+    // Set region color - solid color to match reference
     const regionId = currentGameState.puzzle.regions[row][col];
     const regionColor = REGION_COLORS[regionId % REGION_COLORS.length];
-    cell.style.background = `linear-gradient(135deg, ${regionColor}88, ${regionColor}66)`;
-    cell.style.borderColor = `${regionColor}AA`;
+    cell.style.backgroundColor = regionColor;
+
 
     // Add region border styling
     updateCellBorders(cell, row, col);
@@ -703,7 +703,7 @@ function handleChallengeShare() {
 
 function copyToClipboard(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).catch(() => {});
+        navigator.clipboard.writeText(text).catch(() => { });
     } else {
         const temp = document.createElement('textarea');
         temp.value = text;
@@ -1019,22 +1019,22 @@ function handleWin() {
                 lastSkillAnalysis = analyzer.analyze(moveHistory.getTimedMoves(), lastCompletionMillis);
             } else if (coachSummary) {
                 // Use coach summary for analysis
-                const optimalRate = coachSummary.queenPlacements > 0 
-                    ? (coachSummary.optimalMoves / coachSummary.queenPlacements) 
+                const optimalRate = coachSummary.queenPlacements > 0
+                    ? (coachSummary.optimalMoves / coachSummary.queenPlacements)
                     : 0;
-                
+
                 const expectedTimeMs = currentGameState.puzzle.size * 5000;
                 const timeFactor = Math.min(1.5, Math.max(0.5, expectedTimeMs / Math.max(lastCompletionMillis, 1000)));
-                
+
                 const rawScore = 100 * optimalRate * 0.6 + 100 * (timeFactor / 1.5) * 0.4;
                 const score = Math.round(Math.max(0, Math.min(100, rawScore)));
-                
+
                 const tier = score >= 90 ? { name: 'Champion', emoji: '🏆', color: '#FFD700' }
                     : score >= 75 ? { name: 'Expert', emoji: '⭐', color: '#C0C0C0' }
-                    : score >= 60 ? { name: 'Advanced', emoji: '📈', color: '#CD7F32' }
-                    : score >= 40 ? { name: 'Intermediate', emoji: '🌱', color: '#4CAF50' }
-                    : { name: 'Beginner', emoji: '🎯', color: '#2196F3' };
-                
+                        : score >= 60 ? { name: 'Advanced', emoji: '📈', color: '#CD7F32' }
+                            : score >= 40 ? { name: 'Intermediate', emoji: '🌱', color: '#4CAF50' }
+                                : { name: 'Beginner', emoji: '🎯', color: '#2196F3' };
+
                 lastSkillAnalysis = {
                     score,
                     tier,
@@ -1060,19 +1060,19 @@ function handleWin() {
                 const undoCount = timedMoves.filter(m => m.isUndo).length;
                 const markerPlacements = timedMoves.filter(m => m.newState === CellState.MARKER && !m.isUndo).length;
                 const queenPlacements = currentGameState.puzzle.size;
-                
+
                 const expectedTimeMs = currentGameState.puzzle.size * 5000;
                 const timeFactor = Math.min(1.5, Math.max(0.5, expectedTimeMs / Math.max(lastCompletionMillis, 1000)));
                 const undoPenalty = Math.max(0, 1 - (undoCount * 0.05));
                 const rawScore = 100 * timeFactor * undoPenalty * 0.7;
                 const score = Math.round(Math.max(0, Math.min(100, rawScore)));
-                
+
                 const tier = score >= 85 ? { name: 'Expert', emoji: '🏆', color: '#C0C0C0' }
                     : score >= 70 ? { name: 'Advanced', emoji: '⭐', color: '#CD7F32' }
-                    : score >= 50 ? { name: 'Intermediate', emoji: '📈', color: '#4CAF50' }
-                    : score >= 30 ? { name: 'Beginner', emoji: '🌱', color: '#2196F3' }
-                    : { name: 'Novice', emoji: '🎯', color: '#9E9E9E' };
-                
+                        : score >= 50 ? { name: 'Intermediate', emoji: '📈', color: '#4CAF50' }
+                            : score >= 30 ? { name: 'Beginner', emoji: '🌱', color: '#2196F3' }
+                                : { name: 'Novice', emoji: '🎯', color: '#9E9E9E' };
+
                 lastSkillAnalysis = {
                     score,
                     tier,
@@ -1258,7 +1258,7 @@ function updateSkillAnalysisDisplay() {
         const optimalCount = a.optimalMoves || 0;
         const guessCount = a.guessCount || 0;
         const detourCount = a.detourCount || 0;
-        
+
         if (optimalCount === a.queenPlacements && guessCount === 0) {
             coachFeedback = `<div class="coach-verdict" style="margin-top: var(--spacing-md); padding: var(--spacing-sm); background: rgba(76, 175, 80, 0.2); border-radius: var(--radius-sm); text-align: center;">
                 <strong style="color: #4CAF50;">🎯 Perfect Play!</strong>

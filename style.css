@@ -359,8 +359,8 @@ select {
   position: relative;
   overflow: hidden;
   user-select: none;
-  border: 1px solid #000000;
-  /* Subtle grid lines */
+  border: 2px solid #000000;
+  /* Clear grid lines matching reference */
 }
 
 /* Hover effect - just explicit highlight, no scaling */
