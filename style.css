@@ -353,19 +353,20 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2.5rem;
+  font-size: 1.8rem;
+  /* Smaller, subtler icons */
   transition: background-color 0.2s;
   /* Faster transition, no transform */
   position: relative;
   overflow: hidden;
   user-select: none;
-  border: 2px solid #000000;
-  /* Clear grid lines matching reference */
+  border: 1px solid #000000;
+  /* Subtle grid lines */
 }
 
-/* Hover effect - just explicit highlight, no scaling */
+/* Hover effect - subtle without grey overlay */
 .cell:hover {
-  background-color: rgba(0, 0, 0, 0.08) !important;
+  cursor: pointer;
   z-index: 10;
 }
 
@@ -383,14 +384,9 @@ select {
   transform: translateX(100%);
 }
 
-.cell:hover {
-  transform: scale(1.02);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
-  z-index: 10;
-}
-
 .cell:active {
-  transform: scale(0.95);
+  transform: scale(0.98);
+  /* Subtle click feedback */
 }
 
 /* Cell States */
@@ -897,9 +893,11 @@ select {
     opacity: 0;
     transform: translateX(-50%) scale(0.5);
   }
+
   70% {
     transform: translateX(-50%) scale(1.05);
   }
+
   100% {
     opacity: 1;
     transform: translateX(-50%) scale(1);
@@ -965,6 +963,7 @@ select {
     opacity: 0;
     transform: translateX(100px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
